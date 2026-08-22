@@ -33,23 +33,26 @@ NVIDIA_PROFILES: dict[str, ModelProfile] = {
     # ── recommended ──────────────────────────────────────────────────────────
     "openai/gpt-oss-120b": ModelProfile(
         name="openai/gpt-oss-120b",
-        supports=(StructuredMode.JSON_OBJECT, StructuredMode.PROMPTED),
-        timeout_s=90.0,
+        supports=(StructuredMode.PROMPTED, StructuredMode.JSON_OBJECT),
+        timeout_s=120.0,
         measured_on="2026-08-22",
-        notes="DEFAULT REASONING MODEL. Correct on the probe in 3.4s / 582 tok. "
-              "Strict json_schema hangs, so it is deliberately not offered.",
+        notes="DEFAULT REASONING MODEL. 3/3 correct in PROMPTED mode (15.4s avg). "
+              "Constrained modes are unreliable on this endpoint: json_object "
+              "answered correctly in 3.4s on a single call but timed out across a "
+              "3-case run, and json_schema times out consistently. PROMPTED is "
+              "listed first deliberately — see D13 in DECISIONS.md.",
     ),
     # ── probed, not selected ─────────────────────────────────────────────────
     "nvidia/nemotron-3-super-120b-a12b": ModelProfile(
         name="nvidia/nemotron-3-super-120b-a12b",
-        supports=(StructuredMode.JSON_SCHEMA, StructuredMode.JSON_OBJECT, StructuredMode.PROMPTED),
+        supports=(StructuredMode.PROMPTED, StructuredMode.JSON_SCHEMA, StructuredMode.JSON_OBJECT),
         timeout_s=90.0,
         measured_on="2026-08-22",
-        notes="Only model that honours strict json_schema, and fast (4.9s) — but it was "
-              "WRONG on the probe: answered card_expired_or_invalid for an error whose "
-              "description literally reads 'insufficient balance'. Schema compliance is "
-              "not accuracy, which is the whole reason model choice is evaluated and not "
-              "assumed.",
+        notes="The sharpest result in the bake-off. Constrained decoding: 0/3 correct "
+              "(1/3 even matched the schema). Same model, same cases, PROMPTED mode: "
+              "3/3 correct in 4.7s — faster than gpt-oss. Constraining the decoder "
+              "measurably degraded reasoning quality on this endpoint. Fastest correct "
+              "model in the bake-off; strong secondary candidate.",
     ),
     "nvidia/nemotron-3-ultra-550b-a55b": ModelProfile(
         name="nvidia/nemotron-3-ultra-550b-a55b",

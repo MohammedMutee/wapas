@@ -21,13 +21,12 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from wapas.llm.base import ProviderError, StructuredMode  # noqa: E402
-from wapas.llm.openai_compat import UNSERVED, OpenAICompatProvider  # noqa: E402
+from wapas.llm.base import ProviderError, StructuredMode
+from wapas.llm.openai_compat import UNSERVED, OpenAICompatProvider
 
 CANDIDATES = [
     "openai/gpt-oss-120b",

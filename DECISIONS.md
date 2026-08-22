@@ -122,3 +122,58 @@ regulatory citations. `PolicyBundle.unverified_rules()` surfaces them.
 A second infrastructure system, or a framework whose checkpointing needs
 explaining anyway, against ~400 lines that a reviewer can read in one sitting.
 Revisit if the week-2 schedule slips.
+
+---
+
+### D13 · The structured-output ladder prefers *prompted* JSON over constrained decoding
+**2026-08-22**
+
+Counter-intuitive, and measured rather than assumed. `scripts/probe_models.py`
+runs three labelled diagnosis cases against each model in each output mode:
+
+| model | mode | correct | schema ok | avg latency |
+|---|---|---|---|---|
+| `openai/gpt-oss-120b` | json_schema | — | — | times out |
+| `openai/gpt-oss-120b` | json_object | 0/3 | 0/3 | times out |
+| **`openai/gpt-oss-120b`** | **prompted** | **3/3** | **3/3** | 15.4s |
+| `nvidia/nemotron-3-super-120b-a12b` | json_schema | **0/3** | 1/3 | 8.3s |
+| `nvidia/nemotron-3-super-120b-a12b` | json_object | 0/3 | 0/3 | 3.5s |
+| **`nvidia/nemotron-3-super-120b-a12b`** | **prompted** | **3/3** | **3/3** | 4.7s |
+
+Two findings, both worth stating plainly:
+
+1. **Schema compliance is not accuracy.** `nemotron-3-super` honours a strict
+   JSON schema and returns fast — and got every case wrong while doing it. On a
+   single-case probe it classified an error whose description reads
+   *"insufficient balance"* as `card_expired_or_invalid`.
+2. **Constraining the decoder measurably degraded reasoning quality** on this
+   endpoint. The same model, on the same cases, went from 0/3 to 3/3 simply by
+   being asked in prose and having its output parsed and validated by us.
+
+So the ladder is ordered by *measured reliability*, not by strength of
+guarantee: prompted first, constrained modes as fallback. We give up a
+provider-side correctness guarantee we were not actually getting, and keep our
+own guarantee — `ask_structured` validates every response against the Pydantic
+model regardless of the rung that produced it, retries with the validation
+error fed back, and raises rather than returning unvalidated output.
+
+The safety argument is unchanged either way: the policy gate never trusts model
+output, whatever produced it.
+
+**Caveat, recorded honestly:** n=3 cases, one run per cell, on an endpoint with
+visible variance (`gpt-oss-120b`/json_object answered correctly in 3.4s on one
+call and timed out on the next). This is enough to choose a default, not enough
+to publish as a model comparison. The full diagnosis evaluation with a proper
+confusion matrix lives in `eval/`, and the report will state the sample size.
+
+---
+
+### D14 · Free-tier tokens are priced notionally, not at zero
+**2026-08-22**
+
+NVIDIA's developer tier serves these open models at no charge. Booking the cost
+line at zero would make "net incremental recovery" meaningless and would
+flatter our own numbers — the exact failure mode the evaluation design exists
+to prevent. Every open model carries a `notional: true` rate in
+`config/rates.yaml` set to a market comparable for its size, and the report
+labels the column as notional.
