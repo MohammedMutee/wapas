@@ -16,7 +16,13 @@ money_actions:
     - invoice_disputed
     - invoice_forgotten
     - invoice_cash_crunch
-    - unknown
+    # `unknown` is deliberately ABSENT. Blocking retries for an unclassified
+    # failure sounds cautious, but it reduces any non-diagnosing strategy to
+    # inaction — which would have handed our agent a rigged win over the
+    # industry-default baseline. A bounded retry of an already-authorised
+    # payment is the least risky money action and is capped by max_retries and
+    # min_gap_between_retries_hours. Caution under uncertainty restricts
+    # concessions and escalation instead. See DECISIONS.md D16.
   verify_before_retry_causes:
     - technical_timeout
 

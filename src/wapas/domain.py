@@ -165,8 +165,12 @@ DISPOSITIONS: dict[RootCause, Disposition] = {
         note="Promise-to-pay and part-payment plans, slowly. Never threaten.",
     ),
     RootCause.UNKNOWN: Disposition(
-        recoverable=True, retry_allowed=False, default_horizon_hours=24,
-        note="Uncertainty degrades to caution: conservative playbook, no money actions.",
+        recoverable=True, retry_allowed=True, default_horizon_hours=24,
+        note="Uncertainty degrades to caution, but a bounded retry of an already-"
+             "authorised payment is the least risky money action available and is "
+             "capped by max_retries and min_gap. Caution restricts concessions and "
+             "escalation instead. Marking this non-retryable silently reduced every "
+             "non-diagnosing baseline to inaction — a rigged comparison.",
     ),
 }
 

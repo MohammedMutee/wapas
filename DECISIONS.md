@@ -198,3 +198,64 @@ Consequence worth knowing: a development database accumulates audit rows that
 cannot be deleted, and a deterministic chain re-inserted verbatim will collide
 on the unique hash. Tests vary a tag inside the hashed payload. Inconvenient,
 and inconvenient in exactly the right way.
+
+---
+
+### D16 · `unknown` is retryable; caution restricts concessions instead
+**2026-08-23**
+
+Found by the first batch run, where `baseline_naive` recovered **0%**. The
+`unknown` root cause was in `never_retry_causes`, so any strategy that does not
+diagnose could never retry — which silently reduced the industry-default
+baseline to inaction and would have handed our agent a rigged win.
+
+A bounded retry of a payment the customer already authorised is the least risky
+money action in the system, and it is already capped by `max_retries_per_payment`
+and `min_gap_between_retries_hours`. Caution under uncertainty should restrict
+concessions and escalation, not retries. Removing `unknown` took the naive
+baseline from 0% to 53.5% — from strawman to genuine competitor.
+
+---
+
+### D17 · Two windows: how long to act, and how long to watch
+**2026-08-23**
+
+Also found by the first batch run: the control arm recovered **0%** when the
+simulator says ~17% of episodes recover unaided. Self-recovery was only
+evaluated at the current clock, and an arm that takes no actions never advances
+its clock. The consequence was that incremental recovery equalled gross
+recovery — exactly the over-claim the control arm exists to prevent.
+
+The engine now distinguishes:
+
+* `action_horizon` — how long it is worth *acting*, which varies by root cause
+* `watch_until` — how long we *observe* for an outcome, identical for every arm
+
+Conflating them makes untreated arms look worse than they are, which flatters
+the treated arm. Both bugs pushed our own numbers up; that is the direction
+that matters, and it is why the control arm earns its 10%.
+
+---
+
+### D18 · The report runs an A/A test on itself
+**2026-08-23**
+
+`treatment` and `baseline_rules` currently execute the identical strategy, so
+the true difference between them is exactly zero. That makes their comparison
+an A/A test, and on the current seed **it fails** — the 95% interval excludes
+zero when there is nothing to detect.
+
+Rather than remove the row, the report prints it and explains it. The cause is
+arm size (~209 against 1,187) combined with a heavy-tailed amount distribution
+where a few large recoveries move the mean a long way.
+
+Two consequences, both stated in the report:
+
+1. The comparison that matters — treatment against `baseline_naive` — already
+   spans zero. **We cannot presently claim to beat the industry default.**
+2. Before the final run: larger baseline arms, assignment stratified by amount
+   decile, and the A/A interval published alongside every A/B interval.
+
+A submission that quietly reports only its favourable interval is one bad
+question away from collapsing. A submission that ships its own null test is
+much harder to attack.

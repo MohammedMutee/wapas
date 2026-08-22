@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLISHED GENERATIVE PARAMETERS
+#
+# This file is the simulator's entire model of the world. It is committed,
+# versioned, and published deliberately: any reviewer can read exactly how the
+# synthetic population behaves and check that we did not tune it to flatter our
+# own agent. The agent never reads this file, and a test asserts it cannot see
+# any latent trait defined here.
+#
+# EVERY NUMBER BELOW IS A MODELLING ASSUMPTION, NOT A MEASURED RAZORPAY
+# STATISTIC. They are chosen to be plausible and, where it matters, pessimistic
+# for us. The sensitivity sweep perturbs all of them by ±30% and reports
+# whether the agent still beats the baseline across the range.
+# ─────────────────────────────────────────────────────────────────────────────
+version: "sim/1"
+
+# ── Surface A: failed payments ───────────────────────────────────────────────
+failure_causes:
+  # Shares must sum to 1.0. A test enforces it.
+  insufficient_funds:      0.30
+  authentication_failed:   0.20
+  issuer_down:             0.15
+  technical_timeout:       0.10
+  card_expired_or_invalid: 0.08
+  limit_exceeded:          0.06
+  risk_declined:           0.06
+  customer_cancelled:      0.05
+
+rails:
+  # Cause → rail affinity. Authentication failures are a card phenomenon;
+  # UPI intent has no 3DS step to abandon.
+  card:        {authentication_failed: 0.75, insufficient_funds: 0.35, default: 0.40}
+  upi:         {authentication_failed: 0.05, insufficient_funds: 0.45, default: 0.35}
+  netbanking:  {default: 0.15}
+  wallet:      {default: 0.10}
+
+amounts:
+  # Lognormal in rupees, clipped. Heavy right tail: a few large invoices carry
+  # a disproportionate share of the recoverable money, which is why the
+  # bootstrap resamples episodes rather than rupees.
+  distribution: lognormal
+  mu: 6.6
+  sigma: 1.15
+  min_rupees: 99
+  max_rupees: 49999
+
+issuer_outages:
+  # Outages are BURSTY, not independent draws. Sampling issuer downtime i.i.d.
+  # would make the problem artificially easy — a fixed retry ladder would
+  # recover almost as well as a cause-aware one. Correlated bursts are what
+  # make timing intelligence actually pay off.
+  bursts_per_90_days: 14
+  burst_duration_minutes: {min: 20, max: 180}
+  affected_issuer_share: 0.25
+
+# ── Latent counterparty traits: INVISIBLE TO THE AGENT ───────────────────────
+consumer:
+  liquidity_refresh_day:
+    # Salary lands on the 1st for most, 7th for some, month-end for the rest.
+    values: [1, 7, 28]
+    weights: [0.50, 0.20, 0.30]
+  responsiveness:        {dist: beta, a: 2.0, b: 3.0}
+  annoyance_threshold:   {dist: poisson, lam: 3.5}   # contacts before opting out
+  price_sensitivity:     {dist: beta, a: 2.0, b: 5.0}
+  channel_preference:
+    values: [whatsapp, sms, email, voice]
+    weights: [0.55, 0.20, 0.20, 0.05]
+  self_recovery_rate:
+    # THE MOST IMPORTANT PARAMETER IN THIS FILE.
+    # The probability a customer pays with no intervention at all. It is why a
+    # randomised control arm exists: without modelling self-recovery, gross
+    # recovery looks enormous and means nothing. Mean here is ~0.21.
+    dist: beta
+    a: 1.6
+    b: 6.0
+
+b2b_buyer:
+  persona:
+    values: [prompt_payer, cash_crunched, disputer, ghost]
+    weights: [0.35, 0.30, 0.20, 0.15]
+  promise_keep_rate:   {dist: beta, a: 3.0, b: 2.0}
+  dispute_propensity:  {dist: beta, a: 1.0, b: 8.0}
+  days_late_baseline:  {dist: lognormal, mu: 2.4, sigma: 0.8}
+  self_recovery_rate:  {dist: beta, a: 1.2, b: 7.0}
+
+# ── Response model ───────────────────────────────────────────────────────────
+# P(recover | cause, intervention, timing, traits, history), as a logistic with
+# named, readable terms. Coefficients are log-odds contributions.
+response:
+  base_log_odds: -2.2
+
+  intervention_lift:
+    # What each action is worth, before fit and fatigue adjustments.
+    retry_payment:          0.9
+    create_payment_link:    1.1
+    request_mandate_reauth: 1.3
+    send_message:           0.6
+    place_voice_call:       1.0
+    offer_concession:       1.4
+
+  cause_fit:
+    # Cause × intervention interaction. This is the signal a fixed retry ladder
+    # cannot express, and the reason cause-aware routing is worth anything.
+    insufficient_funds:      {retry_payment: 1.2, offer_concession: 0.8, send_message: 0.3}
+    authentication_failed:   {create_payment_link: 1.5, retry_payment: -0.9}
+    issuer_down:             {retry_payment: 1.6, send_message: -0.4}
+    technical_timeout:       {retry_payment: 1.1}
+    limit_exceeded:          {offer_concession: 1.0, create_payment_link: 0.7, retry_payment: -0.6}
+    card_expired_or_invalid: {retry_payment: -4.0, send_message: 0.9}
+    risk_declined:           {retry_payment: -6.0, create_payment_link: -4.0}
+    customer_cancelled:      {send_message: 0.2}
+    invoice_forgotten:       {send_message: 1.4}
+    invoice_cash_crunch:     {offer_concession: 1.2, send_message: 0.2}
+    invoice_disputed:        {send_message: -2.0}
+
+  timing:
+    # Retrying insufficient funds before payday is close to worthless; after it,
+    # valuable. This is the whole basis of the retry-timing model.
+    liquidity_bonus: 1.4
+    liquidity_penalty: -0.8
+    liquidity_window_days: 3
+    issuer_recovered_bonus: 1.5
+    issuer_still_down_penalty: -2.5
+    business_hours_bonus: 0.3
+
+  channel_fit_bonus: 0.5        # contacting on the counterparty's preferred channel
+  fatigue_lambda: 0.35          # each further contact multiplies odds by exp(-λn)
+  opt_out_hazard_per_contact: 0.06
+  complaint_hazard_per_contact: 0.015
+  concession_elasticity: 2.0    # scaled by price_sensitivity
+
+  # Partial payment is a real outcome for B2B, not a rounding error.
+  part_payment_probability: 0.18
+  part_payment_fraction: {min: 0.25, max: 0.6}
+  promise_to_pay_probability: 0.22
+  promise_horizon_days: {min: 2, max: 10}
+
+# ── Scale ────────────────────────────────────────────────────────────────────
+volumes:
+  payment_episodes: 1200
+  mandate_episodes: 400
+  receivable_episodes: 400
+horizon_days: 90

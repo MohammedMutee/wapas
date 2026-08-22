@@ -1,0 +1,176 @@
+"""Playbooks: cause → bounded action sequence.
+
+This is the rules-only planner. It is deliberately written *well* rather than
+as a strawman, because it doubles as ``baseline_rules`` — the ablation that
+answers "does the LLM earn its cost?". A weak hand-written baseline would make
+the agent look good by comparison and prove nothing.
+
+Each step carries an offset from episode open, so a playbook expresses timing
+as well as choice. The policy gate independently vets every step, so a playbook
+cannot authorise something policy forbids — it can only propose.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+from dataclasses import dataclass, field
+
+from ..domain import Channel, ProposedAction, RootCause, Surface, Tool
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybookStep:
+    tool: Tool
+    offset: _dt.timedelta
+    channel: Channel = Channel.NONE
+    rung: int | None = None
+    rationale: str = ""
+    concession_pct: int = 0
+    """Percentage of the amount to give up. Capped independently by the gate."""
+
+    def to_action(self, opened_at: _dt.datetime, amount_paise: int) -> ProposedAction:
+        args: dict[str, object] = {}
+        if self.channel is not Channel.NONE:
+            args["channel"] = str(self.channel)
+        if self.rung is not None:
+            args["rung"] = self.rung
+        if self.concession_pct:
+            args["value_paise"] = amount_paise * self.concession_pct // 100
+        return ProposedAction(
+            tool=self.tool,
+            args=args,
+            scheduled_for=opened_at + self.offset,
+            rationale=self.rationale,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Playbook:
+    id: str
+    steps: tuple[PlaybookStep, ...] = field(default_factory=tuple)
+
+
+H = _dt.timedelta(hours=1)
+D = _dt.timedelta(days=1)
+
+PLAYBOOKS: dict[RootCause, Playbook] = {
+    # Time the retry to the liquidity refresh, don't hammer it. One soft notice
+    # first, because a customer who knows the payment failed often just pays.
+    RootCause.INSUFFICIENT_FUNDS: Playbook("insufficient_funds_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 2 * H, Channel.WHATSAPP, rung=1,
+                     rationale="Balance shortfall: notify, the customer may top up unprompted"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 3 * D,
+                     rationale="Retry after the likely liquidity refresh, not before"),
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 4 * D,
+                     rationale="Offer an alternate rail if the retry fails"),
+    )),
+
+    # Never re-present the same 3DS flow; it drops out the same way twice.
+    RootCause.AUTHENTICATION_FAILED: Playbook("authentication_failed_v1", (
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 1 * H,
+                     rationale="Authentication drop-off: switch rails rather than repeat 3DS"),
+        PlaybookStep(Tool.SEND_MESSAGE, 6 * H, Channel.WHATSAPP, rung=1,
+                     rationale="Nudge with the low-friction link"),
+    )),
+
+    # Not the customer's fault. Wait out the outage, say nothing.
+    RootCause.ISSUER_DOWN: Playbook("issuer_down_v1", (
+        PlaybookStep(Tool.RETRY_PAYMENT, 2 * H,
+                     rationale="Issuer outage: retry once the bank is likely back"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 8 * H, rationale="Second retry after a longer wait"),
+    )),
+    RootCause.GATEWAY_ERROR: Playbook("gateway_error_v1", (
+        PlaybookStep(Tool.RETRY_PAYMENT, 1 * H, rationale="Transient gateway fault"),
+    )),
+
+    # Ambiguous outcome. The gate blocks the retry until capture is verified.
+    RootCause.TECHNICAL_TIMEOUT: Playbook("technical_timeout_v1", (
+        PlaybookStep(Tool.VERIFY_PAYMENT_CLAIM, _dt.timedelta(minutes=15),
+                     rationale="Unknown final status: confirm no capture before retrying"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 2 * H, rationale="Safe to retry once verified"),
+    )),
+
+    # No retry can succeed. Ask once for a new instrument, then stop.
+    RootCause.CARD_EXPIRED_OR_INVALID: Playbook("card_expired_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 1 * H, Channel.WHATSAPP, rung=1,
+                     rationale="Instrument is dead: ask for an update, never retry"),
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 2 * H,
+                     rationale="Give them somewhere to pay with a different method"),
+    )),
+
+    RootCause.LIMIT_EXCEEDED: Playbook("limit_exceeded_v1", (
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 1 * H,
+                     rationale="Per-transaction cap: offer another rail"),
+        PlaybookStep(Tool.SEND_MESSAGE, 1 * D, Channel.WHATSAPP, rung=1,
+                     rationale="Explain the bank limit and the alternative"),
+    )),
+
+    # A risk decline is a decision, not an obstacle.
+    RootCause.RISK_DECLINED: Playbook("risk_declined_v1", (
+        PlaybookStep(Tool.CLOSE_EPISODE, _dt.timedelta(0),
+                     rationale="Risk decline: stop. Routing around it would be abuse."),
+    )),
+
+    RootCause.CUSTOMER_CANCELLED: Playbook("customer_cancelled_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 4 * H, Channel.WHATSAPP, rung=1,
+                     rationale="Deliberate cancellation: one low-friction nudge only"),
+    )),
+
+    RootCause.MANDATE_REVOKED: Playbook("mandate_revoked_v1", (
+        PlaybookStep(Tool.REQUEST_MANDATE_REAUTH, 2 * H, Channel.WHATSAPP,
+                     rationale="No live mandate: reauthorisation is the only lawful path"),
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 2 * D,
+                     rationale="One-off payment so this cycle is not lost"),
+    )),
+    RootCause.MANDATE_INSUFFICIENT: Playbook("mandate_insufficient_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 2 * H, Channel.WHATSAPP, rung=1,
+                     rationale="Debit bounced: tell them before re-presenting"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 4 * D,
+                     rationale="Re-present after the likely liquidity refresh"),
+    )),
+
+    # ── receivables: the escalation ladder, one rung at a time ───────────────
+    RootCause.INVOICE_FORGOTTEN: Playbook("invoice_forgotten_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 1 * H, Channel.EMAIL, rung=1,
+                     rationale="Soft notice; most overdue invoices are simply unnoticed"),
+        PlaybookStep(Tool.SEND_MESSAGE, 4 * D, Channel.WHATSAPP, rung=2,
+                     rationale="Firm reminder after the rung-1 cooldown"),
+        PlaybookStep(Tool.SEND_MESSAGE, 10 * D, Channel.EMAIL, rung=3,
+                     rationale="Statement of account"),
+        PlaybookStep(Tool.ESCALATE_TO_HUMAN, 20 * D, rationale="Ladder exhausted"),
+    )),
+    RootCause.INVOICE_CASH_CRUNCH: Playbook("invoice_cash_crunch_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 1 * H, Channel.EMAIL, rung=1,
+                     rationale="Soft notice"),
+        PlaybookStep(Tool.OFFER_CONCESSION, 5 * D, concession_pct=8,
+                     rationale="Cash constrained: an instalment plan beats a chase"),
+        PlaybookStep(Tool.SEND_MESSAGE, 12 * D, Channel.WHATSAPP, rung=2,
+                     rationale="Firm reminder if the plan is not taken up"),
+        PlaybookStep(Tool.ESCALATE_TO_HUMAN, 25 * D, rationale="Needs a human negotiation"),
+    )),
+    # Chasing a disputed invoice is harassment, not recovery.
+    RootCause.INVOICE_DISPUTED: Playbook("invoice_disputed_v1", (
+        PlaybookStep(Tool.ESCALATE_TO_HUMAN, _dt.timedelta(0),
+                     rationale="Dispute raised: route to a human, stop collections"),
+    )),
+
+    # Uncertainty degrades to caution, never to guessing.
+    RootCause.UNKNOWN: Playbook("conservative_v1", (
+        PlaybookStep(Tool.SEND_MESSAGE, 4 * H, Channel.EMAIL, rung=1,
+                     rationale="Cause unclear: one informational notice, no money actions"),
+        PlaybookStep(Tool.CLOSE_EPISODE, 3 * D, rationale="Do not guess with money"),
+    )),
+}
+
+_SURFACE_FALLBACK: dict[Surface, RootCause] = {
+    Surface.PAYMENT: RootCause.UNKNOWN,
+    Surface.MANDATE: RootCause.MANDATE_INSUFFICIENT,
+    Surface.RECEIVABLE: RootCause.INVOICE_FORGOTTEN,
+}
+
+
+def playbook_for(cause: RootCause, surface: Surface) -> Playbook:
+    """Select a playbook, falling back conservatively by surface."""
+    if cause in PLAYBOOKS:
+        return PLAYBOOKS[cause]
+    return PLAYBOOKS[_SURFACE_FALLBACK.get(surface, RootCause.UNKNOWN)]
