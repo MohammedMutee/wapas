@@ -1,0 +1,34 @@
+# Money policy. Governs anything that moves, promises, or gives up money.
+version: "money/3"
+
+money_actions:
+  # Invariant. No configuration value may disable this; the gate hard-codes it
+  # and a test asserts that a policy file attempting to set it false is rejected.
+  require_valid_mandate_for_debit: true
+  max_retries_per_payment: 3
+  min_gap_between_retries_hours: 4
+  # Populated from domain.NEVER_RETRY at load time; listed here for readability.
+  never_retry_causes:
+    - card_expired_or_invalid
+    - risk_declined
+    - mandate_revoked
+    - customer_cancelled
+    - invoice_disputed
+    - invoice_forgotten
+    - invoice_cash_crunch
+    - unknown
+  verify_before_retry_causes:
+    - technical_timeout
+
+budgets:
+  max_actions_per_episode: 8
+  max_spend_per_episode_paise: 15000        # ₹150
+  max_concession_pct_of_amount: 10
+  approval_required_above_paise: 500000     # ₹5,000 → human in the loop
+  daily_org_spend_cap_paise: 2000000        # ₹20,000
+
+triage:
+  ev_floor_paise: 500                       # ₹5 expected value to be worth acting on
+
+idempotency:
+  required_on_all_actuators: true

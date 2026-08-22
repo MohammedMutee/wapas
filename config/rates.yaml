@@ -1,0 +1,21 @@
+# Channel and model rate card. Versioned so cost figures are reproducible.
+# Channel rates are indicative Indian list prices; they are configuration, not
+# claims, and the sensitivity sweep varies them.
+version: "rates/1"
+pinned_on: "2026-08-21"
+fx:
+  usd_inr: 87.50
+  note: "Pinned. A floating rate would make the cost numbers irreproducible."
+
+channels:
+  sms:      { paise_per_unit: 12 }
+  whatsapp: { paise_per_unit: 35 }
+  email:    { paise_per_unit: 2 }
+  voice:    { paise_per_minute: 120, assumed_minutes: 1.5 }
+
+# USD per million tokens. Batch API halves these; cache reads are 10% of input.
+models:
+  claude-opus-5:              { input: 5.0,  output: 25.0 }
+  claude-haiku-4-5-20251001:  { input: 1.0,  output: 5.0 }
+gateway:
+  retry_attempt_paise: 0      # Razorpay does not charge for a failed attempt

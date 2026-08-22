@@ -1,0 +1,41 @@
+# Escalation ladder. Rungs are data, not code, so the ladder is inspectable,
+# diffable, and renderable on the dashboard.
+version: "escalation/3"
+
+skip_rungs: false            # cannot jump rungs, ever
+reset_on:
+  - promise_to_pay
+  - dispute_raised
+  - part_payment
+
+ladder:
+  - rung: 1
+    name: soft_notice
+    channels: [whatsapp, email]
+    tone: informational
+    min_days_since_previous: 0
+    preconditions: [channel_consent]
+  - rung: 2
+    name: firm_reminder
+    channels: [whatsapp, sms, email]
+    tone: firm
+    min_days_since_previous: 3
+    preconditions: [channel_consent, no_active_dispute, no_active_promise]
+  - rung: 3
+    name: statement_of_account
+    channels: [email]
+    tone: formal
+    min_days_since_previous: 5
+    preconditions: [b2b_only, ledger_verified, no_active_dispute]
+  - rung: 4
+    name: voice_contact
+    channels: [voice]
+    tone: formal
+    min_days_since_previous: 5
+    preconditions: [voice_consent, business_hours, min_amount_paise_100000]
+  - rung: 5
+    name: human_handoff
+    channels: []
+    terminal: true
+    min_days_since_previous: 3
+    preconditions: []

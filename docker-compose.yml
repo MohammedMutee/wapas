@@ -1,0 +1,29 @@
+# Wapas — one-command local stack.
+#   docker compose up   →  API on :8000, dashboard on :3000
+# Ports are offset (5433/6380) to avoid colliding with a local Postgres/Redis.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wapas
+      POSTGRES_PASSWORD: wapas
+      POSTGRES_DB: wapas
+    ports: ["5433:5432"]
+    volumes: ["wapas_pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wapas"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  wapas_pgdata:

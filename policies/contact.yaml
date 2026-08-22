@@ -1,0 +1,52 @@
+# Contact policy.
+#
+# ⚠️  These rules are a good-faith ENGINEERING MODEL of Indian norms for
+#     customer/borrower contact. They are NOT legal advice and NOT verbatim
+#     regulation. Every rule carries `source` and `verified`. Anything with
+#     `verified: false` has not been independently confirmed and must not be
+#     presented as a regulatory citation.
+version: "contact/3"
+
+quiet_hours:
+  messaging:
+    start: "21:00"
+    end: "08:00"
+    tz: "Asia/Kolkata"
+    source: "Modelled on RBI outsourcing / recovery-agent norms limiting borrower contact hours"
+    verified: false   # TODO confirm exact window and whether it binds merchant collections
+  voice:
+    start: "19:00"
+    end: "08:00"
+    tz: "Asia/Kolkata"
+    source: "Same, stricter bound applied to voice as the more intrusive channel"
+    verified: false
+
+frequency_caps:
+  messages_per_day: 1
+  messages_per_week: 3
+  voice_calls_per_week: 1
+  contacts_per_episode: 4
+  cooldown_after_no_response_hours: 48
+
+consent:
+  require_channel_consent: true
+  honour_dnd_registry: true
+  opt_out_keywords: ["STOP", "UNSUBSCRIBE", "BAND KARO", "MAT BHEJO", "OPT OUT"]
+  opt_out_is_permanent: true
+  opt_out_propagates_across_surfaces: true
+
+third_parties:
+  contact_non_debtor_parties: false
+  disclose_debt_to_third_party: false
+
+content:
+  require_identification: true
+  require_opt_out_line: true
+  banned_claims:
+    - legal_threat
+    - credit_bureau_threat
+    - invented_late_fee
+    - false_urgency
+    - impersonation_of_authority
+    - shaming_language
+  max_freetext_slot_chars: 40
