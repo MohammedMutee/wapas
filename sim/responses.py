@@ -4,7 +4,7 @@ A documented logistic model. Every term is named and every coefficient lives in
 ``sim/params.yaml``, so the reader can see exactly what the agent is being
 rewarded for. The structure matters more than the numbers:
 
-* **Cause × intervention fit** is the signal a fixed retry ladder cannot
+* **Cause-by-intervention fit** is the signal a fixed retry ladder cannot
   express. Retrying an expired card is worthless; switching rails after an
   authentication drop is valuable. If this term were flat, cause-aware routing
   would be worth nothing and the agent would deserve to lose.
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from wapas.clock import IST
 from wapas.domain import Channel, RootCause, Tool
-from wapas.money import Paise
+from wapas.money import ZERO, Paise
 
 from .params import SimParams
 from .populations import B2BBuyer, SeededEpisode
@@ -38,7 +38,7 @@ class Interaction:
     tool: Tool
     at: _dt.datetime
     channel: Channel = Channel.NONE
-    concession_paise: Paise = Paise(0)
+    concession_paise: Paise = ZERO
     contact_index: int = 0
     """How many contacts preceded this one. Drives fatigue."""
 

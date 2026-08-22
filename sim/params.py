@@ -145,9 +145,10 @@ class SimParams(_B):
         def scale(node: Any, path: str) -> Any:
             if isinstance(node, dict):
                 return {k: scale(v, f"{path}.{k}" if path else k) for k, v in node.items()}
-            if isinstance(node, (int, float)) and not isinstance(node, bool):
-                if any(path.endswith(k) or f".{k}." in f".{path}." for k in keys):
-                    return node * factor
+            if isinstance(node, (int, float)) and not isinstance(node, bool) and any(
+                path.endswith(k) or f".{k}." in f".{path}." for k in keys
+            ):
+                return node * factor
             return node
 
         return SimParams.model_validate(scale(data, ""))
