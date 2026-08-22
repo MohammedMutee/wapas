@@ -70,6 +70,34 @@ Modelled on the Digital Personal Data Protection Act, 2023 (`verified: false`).
 - Non-sensitive fields — amounts, verdicts, timestamps, reason codes — stay
   readable, because an audit trail nobody can read is not an audit trail.
 
+### Erasure is redaction, not deletion
+
+Two of this project's requirements pull against each other:
+
+* the audit chain must be tamper-evident, so historical rows cannot be removed
+  — the `audit_entry` foreign key onto `episode` is `ON DELETE RESTRICT`
+  precisely so that deleting an episode is not a back door to deleting its
+  trail; and
+* a data subject must be able to have their personal data erased.
+
+Deleting rows would satisfy the second and destroy the first. Keeping
+everything would satisfy the first and ignore the second.
+
+**Resolution: erasure removes the personal data, not the record of what
+happened.** `wapas.db.erasure.erase_counterparty` nulls the contact
+identifiers, replaces the display name with a stable pseudonym, clears channel
+consent, and marks the counterparty opted out — because a counterparty we can
+no longer identify is one we must never contact again. A tombstone is appended
+to the chain, since erasure is itself an audited event.
+
+The chain needs no modification, because it never held the plaintext — only
+salted digests.
+
+What survives is a counterparty with no identifying information and a trail
+proving what the system did and when. The merchant can still demonstrate to a
+regulator that consent and contact caps were honoured; the individual is no
+longer identifiable. The operation is idempotent.
+
 ## Open compliance questions
 
 Tracked, unresolved, and listed here rather than papered over:

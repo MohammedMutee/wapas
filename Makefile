@@ -4,6 +4,14 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
+# Use whichever Docker endpoint actually answers. A machine with Docker Desktop
+# installed but not running leaves the active context pointing at a dead socket,
+# so fall back to the system daemon rather than failing.
+DC := docker compose
+ifeq ($(shell docker info >/dev/null 2>&1 && echo ok),)
+  DC := DOCKER_HOST=unix:///var/run/docker.sock docker compose
+endif
+
 help:            ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "};{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
 
@@ -15,12 +23,12 @@ install: venv    ## Install the package and dev dependencies
 	$(PIP) install -q -e ".[dev]"
 
 up:              ## Start Postgres + Redis
-	docker compose up -d
-	@echo "waiting for postgres..." && until docker compose exec -T db pg_isready -U wapas >/dev/null 2>&1; do sleep 1; done
+	$(DC) up -d
+	@echo "waiting for postgres..." && until $(DC) exec -T db pg_isready -U wapas >/dev/null 2>&1; do sleep 1; done
 	@echo "ready."
 
 down:            ## Stop the stack
-	docker compose down
+	$(DC) down
 
 migrate:         ## Apply database migrations
 	$(VENV)/bin/alembic upgrade head

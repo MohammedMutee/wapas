@@ -63,10 +63,13 @@ make redteam     # 20 adversarial scenarios; expect 0 escapes
 | Virtual clock + deterministic scheduler | ✅ | 90 simulated days in seconds |
 | Domain model, root-cause taxonomy, state machine table | ✅ | `src/wapas/domain.py` |
 | Hash-chained audit log + verification | ✅ | tamper, reorder, deletion and back-dating all detected |
-| Policy gate (contact, money, escalation) | ✅ | 83 tests incl. 14 property tests |
-| Database schema + migrations | ⬜ | next |
-| Episode engine + actuators | ⬜ | |
-| Diagnosis (Claude, structured output) | ⬜ | |
+| Policy gate (contact, money, escalation) | ✅ | property-tested |
+| Provider-neutral LLM layer (NVIDIA NIM) | ✅ | capability ladder + validate-and-retry |
+| Model bake-off | ✅ | [`results/model_bakeoff.md`](results/model_bakeoff.md) |
+| Database schema + migrations | ✅ | 8 tables; audit table append-only via DB trigger |
+| Right-to-erasure (redaction, not deletion) | ✅ | `src/wapas/db/erasure.py` |
+| Episode engine + actuators | ⬜ | next |
+| Diagnosis (structured output) | ⬜ | |
 | Simulator + evaluation harness | ⬜ | |
 | Dashboard | ⬜ | |
 

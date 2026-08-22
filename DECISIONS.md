@@ -177,3 +177,24 @@ flatter our own numbers — the exact failure mode the evaluation design exists
 to prevent. Every open model carries a `notional: true` rate in
 `config/rates.yaml` set to a market comparable for its size, and the report
 labels the column as notional.
+
+---
+
+### D15 · Erasure is redaction, not deletion
+**2026-08-22**
+
+Surfaced by a failing test teardown, which is the best way to find a design
+hole. The integration fixture tried to delete its counterparty and could not:
+`audit_entry.episode_id` is `ON DELETE RESTRICT`, so an episode with audit
+history pins itself permanently. That is the tamper-evidence guarantee working
+exactly as intended — and it collides head-on with right-to-erasure.
+
+Resolution: `erase_counterparty` redacts personal data in place (contact
+identifiers nulled, display name replaced with a stable pseudonym, consent
+cleared, opted-out set) and leaves the record of *what happened* intact. The
+audit chain is untouched because it only ever stored salted digests.
+
+Consequence worth knowing: a development database accumulates audit rows that
+cannot be deleted, and a deterministic chain re-inserted verbatim will collide
+on the unique hash. Tests vary a tag inside the hashed payload. Inconvenient,
+and inconvenient in exactly the right way.
