@@ -11,3 +11,11 @@ web/.next/
 results/*.png
 !results/.gitkeep
 .DS_Store
+
+# Credentials — never commit. .env is the only place keys live.
+*.csv
+*-key*
+*key*.txt
+*secret*
+*credential*
+.secrets/

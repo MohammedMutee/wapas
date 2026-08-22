@@ -13,8 +13,31 @@ channels:
   email:    { paise_per_unit: 2 }
   voice:    { paise_per_minute: 120, assumed_minutes: 1.5 }
 
-# USD per million tokens. Batch API halves these; cache reads are 10% of input.
+# USD per million tokens. Batch tiers halve these; cache reads bill at 10% of input.
+#
+# `notional: true` means we are NOT actually paying this. NVIDIA's developer
+# tier serves these open models at no charge, which would make the cost line
+# zero and the net-recovery headline meaningless. We book the published list
+# rate for comparable hosted inference of a model that size instead, and the
+# report labels the column as notional. Understating cost would flatter our own
+# numbers — the exact failure mode the evaluation design exists to prevent.
 models:
+  # Open models, served free via NVIDIA NIM, priced notionally.
+  openai/gpt-oss-120b:
+    { input: 0.15, output: 0.60, notional: true,
+      note: "Free via NVIDIA NIM. Rate is a market comparable for a ~120B MoE." }
+  nvidia/nemotron-3-super-120b-a12b:
+    { input: 0.15, output: 0.60, notional: true,
+      note: "Free via NVIDIA NIM. Rate is a market comparable for a ~120B MoE." }
+  nvidia/nemotron-3-ultra-550b-a55b:
+    { input: 0.60, output: 2.40, notional: true,
+      note: "Free via NVIDIA NIM. Rate is a market comparable for a ~550B MoE." }
+  nvidia/nemotron-3.5-lightning-30b-a3b:
+    { input: 0.04, output: 0.16, notional: true,
+      note: "Free via NVIDIA NIM. Cheap tier for high-volume classification." }
+  meta/llama-3.3-70b-instruct:
+    { input: 0.10, output: 0.35, notional: true, note: "Free via NVIDIA NIM." }
+  # Anthropic path, priced at actual list. Unused unless the provider is switched.
   claude-opus-5:              { input: 5.0,  output: 25.0 }
   claude-haiku-4-5-20251001:  { input: 1.0,  output: 5.0 }
 gateway:
