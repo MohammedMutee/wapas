@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .money import Paise
+from .money import ZERO, Paise
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Surfaces and events
@@ -429,11 +429,11 @@ class Budget(BaseModel):
 
     actions_used: int = 0
     contacts_used: int = 0
-    spend_paise: Paise = Paise(0)
+    spend_paise: Paise = ZERO
     retries_used: int = 0
 
     def with_action(
-        self, *, contact: bool = False, retry: bool = False, cost: Paise = Paise(0)
+        self, *, contact: bool = False, retry: bool = False, cost: Paise = ZERO
     ) -> Budget:
         return Budget(
             actions_used=self.actions_used + 1,

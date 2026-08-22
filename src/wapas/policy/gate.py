@@ -43,7 +43,7 @@ from ..domain import (
     Surface,
     Tool,
 )
-from ..money import Paise
+from ..money import ZERO, Paise
 from .config import PolicyBundle, QuietWindow
 
 
@@ -73,7 +73,7 @@ class GateContext:
     # consumption
     actions_used: int = 0
     contacts_used: int = 0
-    spend_paise: Paise = Paise(0)
+    spend_paise: Paise = ZERO
     retries_used: int = 0
     last_retry_at: _dt.datetime | None = None
 
@@ -96,7 +96,7 @@ class GateContext:
     ledger_verified: bool = False
 
     # org-wide
-    org_spend_today_paise: Paise = Paise(0)
+    org_spend_today_paise: Paise = ZERO
     kill_switch_engaged: bool = False
 
     def contacts_since(self, since: _dt.datetime) -> int:

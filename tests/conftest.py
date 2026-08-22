@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from wapas.clock import IST, VirtualClock  # noqa: E402
+from wapas.clock import IST, VirtualClock
 
 RUN_START = _dt.datetime(2026, 9, 1, 10, 30, tzinfo=IST)
 
