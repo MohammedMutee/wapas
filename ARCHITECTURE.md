@@ -155,6 +155,45 @@ with a trigger, so the guarantee does not rest on application code behaving.
 Payloads store salted digests in place of personal data, so the chain proves
 what happened to whom without becoming a copy of the customer database.
 
+## How a claim gets made
+
+The evaluation is the product, so its design is architecture rather than
+tooling.
+
+```mermaid
+flowchart TB
+    POP["5,000 seeded episodes"] --> STRAT["Stratify by amount decile"]
+    STRAT --> ARMS["Allocate within each decile<br/>40 / 15 / 15 / 15 / 15"]
+    ARMS --> RUN["Identical loop for every arm<br/>same gate, ledger, audit chain"]
+    RUN --> PERM{{"Stratified permutation test<br/>shuffle labels within the same deciles"}}
+    RUN --> PLACEBO["Placebo: split treatment in two"]
+    PLACEBO --> PERM
+    PERM -->|p < 0.05| CLAIM["Claim, with the placebo printed beside it"]
+    PERM -->|otherwise| NOCLAIM["No claim. Say so."]
+    CLAIM --> CAL["make calibrate<br/>false-positive rate on 300 known nulls"]
+    NOCLAIM --> CAL
+```
+
+Four properties this buys, each of which was added because something went
+wrong without it:
+
+**Every arm runs identical code.** Control, baselines and agent pass through
+the same gate, ledger, attribution and audit chain. Only the strategy differs,
+so a measured difference cannot be an artefact of the harness.
+
+**The harness never reads ground truth.** It did once — the action window was
+derived from the true root cause, handing every arm an oracle-derived stopping
+rule (D20). A regression test now asserts a cause-blind strategy behaves
+identically whatever the cause is.
+
+**The p-value decides, the interval describes.** A percentile bootstrap on a
+heavy-tailed difference of means is approximate; a permutation test under the
+randomisation actually performed is exact.
+
+**A null control is published beside every claim.** The treatment arm is split
+in two and the harness is asked to distinguish halves that ran identical code.
+Whatever it reports there is the noise floor.
+
 ## Repository layout
 
 ```

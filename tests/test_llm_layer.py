@@ -162,3 +162,80 @@ def test_notional_rates_are_declared():
     book = CostBook.load("config/rates.yaml")
     assert "openai/gpt-oss-120b" in book.any_notional()
     assert "claude-opus-5" not in book.any_notional()
+
+
+# ── reasoning models and the output budget ───────────────────────────────────
+#
+# Three separate times this project recorded gpt-oss-120b as "hanging". It was
+# not hanging: it reasons before it answers, both draw on max_tokens, and a
+# starved request burns a minute and returns an empty completion. These tests
+# pin the fix so the wrong explanation cannot come back.
+
+
+def _envelope(content: str, finish_reason: str = "stop") -> dict:
+    return {
+        "choices": [{"message": {"content": content, "reasoning_content": "thinking…"},
+                     "finish_reason": finish_reason}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+    }
+
+
+def _provider_returning(payload: dict, *, profile_extra: dict | None = None):
+    import httpx
+
+    from wapas.llm.base import ModelProfile, StructuredMode
+    from wapas.llm.openai_compat import OpenAICompatProvider
+
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=payload)
+
+    provider = OpenAICompatProvider(
+        base_url="https://example.invalid/v1", api_key="k", name="test",
+        profiles={"m": ModelProfile(name="m", supports=(StructuredMode.PROMPTED,),
+                                    **(profile_extra or {}))},
+    )
+    provider._client = httpx.Client(transport=httpx.MockTransport(handler))
+    return provider, seen
+
+
+def test_the_output_budget_is_raised_to_the_models_floor():
+    """A reasoning model's floor belongs to the model, not to every call site."""
+    from wapas.llm.base import StructuredMode
+
+    provider, seen = _provider_returning(_envelope('{"ok": true}'),
+                                         profile_extra={"min_output_tokens": 1400})
+    provider.complete(model="m", system="s", user="u", mode=StructuredMode.PROMPTED,
+                      max_tokens=60)
+    assert seen["body"]["max_tokens"] == 1400
+
+    provider, seen = _provider_returning(_envelope('{"ok": true}'),
+                                         profile_extra={"min_output_tokens": 100})
+    provider.complete(model="m", system="s", user="u", mode=StructuredMode.PROMPTED,
+                      max_tokens=900)
+    assert seen["body"]["max_tokens"] == 900, "the floor must not cap a larger request"
+
+
+def test_a_starved_reasoning_request_fails_loudly_and_is_not_retried():
+    from wapas.llm.base import ProviderError, StructuredMode
+
+    provider, _ = _provider_returning(_envelope("", finish_reason="length"))
+    with pytest.raises(ProviderError) as exc:
+        provider.complete(model="m", system="s", user="u", mode=StructuredMode.PROMPTED,
+                          max_tokens=60)
+    assert "output budget" in str(exc.value)
+    assert not exc.value.retryable, (
+        "retrying an identical starved request three times only delays the diagnosis"
+    )
+
+
+def test_an_empty_completion_for_any_other_reason_is_retryable():
+    """That one really is the endpoint, and backing off is the right response."""
+    from wapas.llm.base import ProviderError, StructuredMode
+
+    provider, _ = _provider_returning(_envelope("", finish_reason="stop"))
+    with pytest.raises(ProviderError) as exc:
+        provider.complete(model="m", system="s", user="u", mode=StructuredMode.PROMPTED)
+    assert exc.value.retryable
