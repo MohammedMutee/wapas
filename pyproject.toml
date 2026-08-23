@@ -60,7 +60,7 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src/wapas/policy", "src/wapas/ledger", "src/wapas/audit"]
+files = ["src/wapas/policy", "src/wapas/audit", "src/wapas/money.py", "src/wapas/clock.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

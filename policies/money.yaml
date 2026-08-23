@@ -1,5 +1,5 @@
 # Money policy. Governs anything that moves, promises, or gives up money.
-version: "money/3"
+version: "money/4"
 
 money_actions:
   # Invariant. No configuration value may disable this; the gate hard-codes it
@@ -35,6 +35,16 @@ budgets:
 
 triage:
   ev_floor_paise: 500                       # ₹5 expected value to be worth acting on
+  # How long any episode may be worked, for EVERY arm alike. Uniform and
+  # cause-independent on purpose.
+  #
+  # This used to be derived per-episode from the *true* root cause, which is
+  # ground truth no strategy can see. Every arm was therefore being handed a
+  # cause-aware stopping rule by the harness — the agent got credit for
+  # knowing when to give up, and the naive baseline had its fixed ladder
+  # silently truncated by knowledge it does not have. Deciding when to stop is
+  # the agent's job to earn, not the harness's to grant. See DECISIONS.md D20.
+  action_window_hours: 336                  # 14 days
 
 idempotency:
   required_on_all_actuators: true

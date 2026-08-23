@@ -126,6 +126,11 @@ class Budgets(_Base):
 
 class TriagePolicy(_Base):
     ev_floor_paise: int = Field(ge=0)
+    action_window_hours: int = Field(default=336, ge=1, le=2160)
+    """Uniform, cause-independent limit on how long an episode may be worked.
+    Deliberately not per-cause: a per-cause window can only be computed from
+    ground truth, and a harness that consults ground truth is scoring its own
+    agent with information the agent never had."""
 
 
 class MoneyPolicy(_Base):

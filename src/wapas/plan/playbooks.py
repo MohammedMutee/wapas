@@ -8,6 +8,18 @@ the agent look good by comparison and prove nothing.
 Each step carries an offset from episode open, so a playbook expresses timing
 as well as choice. The policy gate independently vets every step, so a playbook
 cannot authorise something policy forbids — it can only propose.
+
+**On retry counts.** Where a cause is genuinely retryable — a balance
+shortfall, an issuer outage, a transient timeout — the playbook now uses more
+of the retry budget policy already grants (3 attempts, 4 hours apart). It was
+using one. A retry costs nothing, cannot annoy anyone, and carries no opt-out
+hazard, so declining to use a permitted, harmless, effective action was not
+caution, it was a weak planner: the fixed-ladder baseline was beating it on
+``insufficient_funds`` 84% to 64% purely by retrying more.
+
+Where a cause is *not* retryable the playbooks still refuse, and that refusal
+is the point. Authentication drop-off, dead cards, limit breaches and risk
+declines all get zero retries no matter how much budget is left.
 """
 
 from __future__ import annotations
@@ -61,8 +73,10 @@ PLAYBOOKS: dict[RootCause, Playbook] = {
                      rationale="Balance shortfall: notify, the customer may top up unprompted"),
         PlaybookStep(Tool.RETRY_PAYMENT, 3 * D,
                      rationale="Retry after the likely liquidity refresh, not before"),
-        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 4 * D,
-                     rationale="Offer an alternate rail if the retry fails"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 5 * D,
+                     rationale="Second attempt across the next refresh window"),
+        PlaybookStep(Tool.CREATE_PAYMENT_LINK, 6 * D,
+                     rationale="Offer an alternate rail if the retries fail"),
     )),
 
     # Never re-present the same 3DS flow; it drops out the same way twice.
@@ -78,6 +92,8 @@ PLAYBOOKS: dict[RootCause, Playbook] = {
         PlaybookStep(Tool.RETRY_PAYMENT, 2 * H,
                      rationale="Issuer outage: retry once the bank is likely back"),
         PlaybookStep(Tool.RETRY_PAYMENT, 8 * H, rationale="Second retry after a longer wait"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 1 * D,
+                     rationale="Third and final retry; outages rarely outlast a day"),
     )),
     RootCause.GATEWAY_ERROR: Playbook("gateway_error_v1", (
         PlaybookStep(Tool.RETRY_PAYMENT, 1 * H, rationale="Transient gateway fault"),
@@ -88,6 +104,8 @@ PLAYBOOKS: dict[RootCause, Playbook] = {
         PlaybookStep(Tool.VERIFY_PAYMENT_CLAIM, _dt.timedelta(minutes=15),
                      rationale="Unknown final status: confirm no capture before retrying"),
         PlaybookStep(Tool.RETRY_PAYMENT, 2 * H, rationale="Safe to retry once verified"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 1 * D,
+                     rationale="A transient fault can recur; one further attempt"),
     )),
 
     # No retry can succeed. Ask once for a new instrument, then stop.
@@ -127,6 +145,8 @@ PLAYBOOKS: dict[RootCause, Playbook] = {
                      rationale="Debit bounced: tell them before re-presenting"),
         PlaybookStep(Tool.RETRY_PAYMENT, 4 * D,
                      rationale="Re-present after the likely liquidity refresh"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 6 * D,
+                     rationale="One further presentment; NACH allows a bounded re-try"),
     )),
 
     # ── receivables: the escalation ladder, one rung at a time ───────────────

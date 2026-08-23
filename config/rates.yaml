@@ -42,3 +42,43 @@ models:
   claude-haiku-4-5-20251001:  { input: 1.0,  output: 5.0 }
 gateway:
   retry_attempt_paise: 0      # Razorpay does not charge for a failed attempt
+
+# ── Externalities: the cost of aggression ────────────────────────────────────
+#
+# Channel spend is trivially small — a few hundred rupees across a thousand
+# episodes — so a ledger containing only channel spend can never show that
+# guardrails pay for themselves. It makes the blast baseline look free, which
+# is precisely backwards: what an over-contacting strategy actually destroys is
+# the *future* revenue from a customer who opts out, complains, or disputes.
+#
+# These numbers are assumptions about the merchant's business, not measured
+# Razorpay statistics, and they are the most contestable figures in the whole
+# project. They are therefore (a) reported as a separate line, never folded
+# silently into channel spend, (b) shown alongside a net figure that excludes
+# them, so a reader who rejects the model can still read the report, and
+# (c) swept at ±30% like every other parameter.
+externalities:
+  opt_out:
+    # A customer who opts out is not lost as a customer. They are lost as a
+    # *reachable* one: future recovery on their episodes now depends entirely
+    # on self-recovery and on retries, with no contact channel available.
+    horizon_months: 12
+    future_episodes_per_year:
+      consumer: 1.4
+      business: 3.2
+    recoverable_share: 0.55
+    # Of the recovery we would have achieved, the share that needed a contact
+    # channel. Retries survive an opt-out; payment links and reminders do not.
+    contactability_loss: 0.70
+    note: >
+      Charged as amount × episodes_per_year × horizon × recoverable_share ×
+      contactability_loss. Using this episode's amount as the proxy for the
+      customer's future ticket size is a simplification; it is the best
+      estimate available at the moment the opt-out happens.
+  complaint:
+    # Support handling, and the regulatory tail of a TRAI/DND complaint.
+    handling_paise: 25000
+  dispute:
+    # Chargeback operations plus representment effort. Excludes the disputed
+    # amount itself, which is already absent from recovered revenue.
+    handling_paise: 60000

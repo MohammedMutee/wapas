@@ -12,7 +12,7 @@
 # for us. The sensitivity sweep perturbs all of them by ±30% and reports
 # whether the agent still beats the baseline across the range.
 # ─────────────────────────────────────────────────────────────────────────────
-version: "sim/1"
+version: "sim/2"
 
 # ── Surface A: failed payments ───────────────────────────────────────────────
 failure_causes:
@@ -108,7 +108,20 @@ response:
     limit_exceeded:          {offer_concession: 1.0, create_payment_link: 0.7, retry_payment: -0.6}
     card_expired_or_invalid: {retry_payment: -4.0, send_message: 0.9}
     risk_declined:           {retry_payment: -6.0, create_payment_link: -4.0}
-    customer_cancelled:      {send_message: 0.2}
+    # Retrying a payment the customer deliberately cancelled, and retrying a
+    # revoked mandate, were both absent from this table until 2026-08-23, which
+    # meant they fell through to the generic +0.9 retry lift — the simulator was
+    # letting a silent re-presentment recover a cancelled payment about half the
+    # time, and letting a revoked mandate be debited at all. The second is not
+    # improbable, it is impossible: a revoked mandate is rejected by the
+    # gateway.
+    #
+    # Found while investigating why the naive baseline was beating our planner,
+    # so the correction happens to help us, and that is exactly when to be
+    # careful. It is made because the old behaviour is indefensible on its own
+    # terms, and DECISIONS.md D21 records the before-and-after numbers for both.
+    customer_cancelled:      {send_message: 0.2, retry_payment: -3.0}
+    mandate_revoked:         {retry_payment: -8.0, request_mandate_reauth: 1.2}
     invoice_forgotten:       {send_message: 1.4}
     invoice_cash_crunch:     {offer_concession: 1.2, send_message: 0.2}
     invoice_disputed:        {send_message: -2.0}
@@ -137,7 +150,12 @@ response:
 
 # ── Scale ────────────────────────────────────────────────────────────────────
 volumes:
-  payment_episodes: 1200
-  mandate_episodes: 400
-  receivable_episodes: 400
+  # Raised from 2,000 on 2026-08-23. At 2,000 the baseline arms held ~200
+  # episodes each, which was too few to distinguish a real effect from a
+  # heavy-tailed sample — the A/B comparison against the naive baseline spanned
+  # zero purely on width. The simulator runs 5,000 episodes in well under a
+  # second, so there was never a reason to be short of statistical power.
+  payment_episodes: 3000
+  mandate_episodes: 1000
+  receivable_episodes: 1000
 horizon_days: 90

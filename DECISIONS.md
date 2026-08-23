@@ -259,3 +259,141 @@ Two consequences, both stated in the report:
 A submission that quietly reports only its favourable interval is one bad
 question away from collapsing. A submission that ships its own null test is
 much harder to attack.
+
+---
+
+### D19 · Stratified allocation, a permanent placebo, and a permutation test
+**2026-08-23**
+
+Acting on D18. Three changes to the experiment design, and one thing that
+turned out not to be true.
+
+**Allocation is stratified by amount decile.** Episodes are ranked by amount
+into ten equal-count strata and dealt to arms within each stratum by
+largest-remainder apportionment. Every arm now receives the same amount profile
+to within one episode per decile, on every run, instead of only in expectation.
+
+**Arms rebalanced 60/10/10/10/10 → 40/15/15/15/15, and the population raised
+from 2,000 to 5,000 episodes.** A comparison is only as precise as its smaller
+arm, so the old split spent its sample on the arm that needed it least. The
+simulator runs 5,000 episodes in under a second; there was never a reason to be
+short of power.
+
+**The decision rule is now a two-sided stratified permutation test**, with the
+bootstrap interval kept as description. Labels are shuffled within the same
+deciles the design allocated within, because that is the randomisation the
+experiment actually performed.
+
+**A placebo split, reported beside every claim.** The treatment arm is cut into
+two stratified halves that ran the same strategy on the same seed, so the true
+difference is zero by construction. Unlike the `treatment` vs `baseline_rules`
+row it stays a valid null after the LLM lands — the harness must not lose its
+null control at the exact moment it starts making claims.
+
+**What did not survive contact with evidence.** The plan was to say that
+stratification fixes the A/A failure. `make calibrate` says otherwise: run over
+many worlds, both designs reject at broadly similar rates, and the difference
+between them is not itself significant. Two separate checks — 400 random
+re-splits of a single fixed world, and a synthetic i.i.d. rehearsal — both put
+the permutation test at ~5%, which is what theory says: conditional on the
+data, a randomisation test is exact whatever generated that data.
+
+So the D18 failure was **an ordinary 1-in-20 event on one seed**, not a broken
+procedure, and stratification buys **precision, not calibration**. The
+calibration report says so in those words. The original claim would have been
+more impressive and less true.
+
+---
+
+### D20 · The harness was reading the answer key
+**2026-08-23**
+
+`EpisodeRunner` computed how long an episode could be worked as
+`DISPOSITIONS[ep.true_cause].default_horizon_hours` — from the *true* root
+cause, which no strategy can observe.
+
+Two consequences, in opposite directions and both bad:
+
+* Every arm was handed a cause-aware stopping rule for free. Our agent looked
+  good at knowing when to give up without ever having decided to.
+* The fixed-ladder baseline had its schedule silently truncated using knowledge
+  it does not have. Its reminder at T+96h was cut off on causes whose horizon
+  was shorter, and on `risk_declined` and `customer_cancelled` — horizon 0 — it
+  was stopped before it could act at all.
+
+The action window is now a single uniform figure from policy
+(`triage.action_window_hours`, 14 days), identical for every arm and
+independent of the cause. Knowing when to stop is something a strategy has to
+earn. `test_the_action_window_does_not_depend_on_the_true_cause` asserts that a
+cause-blind strategy performs the same number of actions whatever the cause is.
+
+Effect: `baseline_naive` rose from 53.3% to 56.5% recovery. Removing the leak
+strengthened a competitor, which is the direction that tells you the leak was
+real.
+
+---
+
+### D21 · Two fixes found while losing, and why that needs care
+**2026-08-23**
+
+After D20 the industry-default baseline was **beating** the rules-only planner,
+significantly: −₹2,62,120 gross per 1,000 episodes, p = 0.027. Investigating
+turned up one fault on each side. Fixing faults discovered while losing is
+where self-serving reasoning enters a project, so both are recorded with their
+effect on the numbers.
+
+**The naive baseline could not contact anyone.** Its reminder was hardcoded to
+SMS, which was denied on 352 of 750 episodes for `no_channel_consent` and
+`channel_not_permitted_at_rung_1`. It was losing on a technicality rather than
+on strategy, and a baseline that cannot act is not a baseline. Switched to
+email — universally consented here, permitted at rung 1. This made our
+competitor **stronger**: naive went from 56.5% to 64.9%.
+
+**The simulator allowed impossible recoveries.** `customer_cancelled` and
+`mandate_revoked` had no entry in the retry column of `cause_fit`, so both fell
+through to the generic +0.9 retry lift. A silent re-presentment was recovering
+a deliberately cancelled payment about half the time, and a *revoked mandate
+could be debited* — that one is not improbable, it is impossible; the gateway
+rejects it. Corrected to −3.0 and −8.0. This made our competitor **weaker**,
+which is why it is spelled out here rather than buried in a diff.
+
+**The planner was under-using its retry budget.** Policy permits three retries
+four hours apart; the playbooks used one, on causes where a retry is the single
+highest-value action available. It costs nothing, annoys nobody and carries no
+opt-out hazard, so declining to use it was not caution. `insufficient_funds`,
+`issuer_down`, `technical_timeout` and `mandate_insufficient` now use the
+budget. Causes where a retry is worse than useless — authentication drop-off,
+dead cards, limit breaches, risk declines — still get zero, and that refusal is
+the product.
+
+Net effect: treatment 58.1% → 62.8%, naive 64.9% → 61.9%, and the gap between
+them is no longer significant (p = 0.196 on rupees, p = 0.658 on recovery
+rate). **We still cannot claim to beat the fixed ladder on rupees.** We can now
+claim to beat the blast baseline: +7.52 percentage points, p = 0.0003.
+
+---
+
+### D22 · Opt-outs are priced, separately and visibly
+**2026-08-23**
+
+The guardrails could not be shown to pay for themselves, because the only cost
+in the ledger was channel spend: ₹432 across 2,000 episodes. An SMS is 12 paise
+and a recovered invoice is thousands of rupees, so on that ledger the optimal
+strategy is always to contact more — which is exactly backwards, and made the
+blast baseline look free.
+
+What disciplines contact frequency is the future revenue destroyed when a
+customer opts out. `config/rates.yaml` now prices it: amount × expected future
+episodes per year × recoverable share × the share of recovery that needed a
+contact channel. Complaints and disputes carry flat handling costs.
+
+Three deliberate constraints, because these are the most contestable numbers in
+the project:
+
+1. They are **assumptions, not measurements**, and the report says so where the
+   figures appear.
+2. They are booked to `externality_paise`, never to `cost_paise`, and audited
+   under their own event type. Realised spend and modelled loss are different
+   claims and are never summed silently.
+3. Net is reported **both with and without** them, so a reader who rejects the
+   model entirely can still read every other number in the report.

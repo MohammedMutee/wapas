@@ -35,6 +35,14 @@ class NaiveRetry:
     card. It will hammer an issuer that is down. It will re-present the same
     3DS flow that the customer already abandoned. That is precisely the
     behaviour a cause-aware agent has to beat to justify existing.
+
+    The reminder goes by **email**, not SMS. This is a fairness fix, not a
+    cosmetic one: with SMS the reminder was denied on 352 of 750 episodes for
+    ``no_channel_consent`` and ``channel_not_permitted_at_rung_1``, so the
+    baseline never contacted anyone at all and lost on a technicality rather
+    than on strategy. Email is universally consented in this simulation and is
+    permitted at rung 1, so the naive ladder now actually gets to run. A
+    baseline that cannot act is not a baseline.
     """
 
     name = "naive_retry"
@@ -53,7 +61,7 @@ class NaiveRetry:
         if ctx.step_no == len(self.SCHEDULE):
             return ProposedAction(
                 tool=Tool.SEND_MESSAGE,
-                args={"channel": str(Channel.SMS), "rung": 1},
+                args={"channel": str(Channel.EMAIL), "rung": 1},
                 scheduled_for=ctx.opened_at + 96 * H,
                 rationale="generic reminder",
             )

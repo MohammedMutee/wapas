@@ -12,36 +12,41 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from eval.stats import bootstrap_difference
+from eval.stats import Comparison, compare
 from sim import ResponseModel, build_population, load_params
 from wapas.audit import HashChain, verify_chain
 from wapas.clock import IST
 from wapas.domain import Arm
-from wapas.engine import EpisodeResult, EpisodeRunner, assign_arm
+from wapas.engine import Allocation, EpisodeResult, EpisodeRunner, stratified_assignment
 from wapas.llm.costs import CostBook
 from wapas.money import format_inr
 from wapas.policy import load_policies
 from wapas.strategies import Blast, DoNothing, NaiveRetry, RulesOnly
 
 ARM_SHARES: dict[Arm, float] = {
-    Arm.TREATMENT: 0.60,
-    Arm.CONTROL: 0.10,
-    Arm.BASELINE_NAIVE: 0.10,
-    Arm.BASELINE_BLAST: 0.10,
-    Arm.BASELINE_RULES: 0.10,
+    Arm.TREATMENT: 0.40,
+    Arm.CONTROL: 0.15,
+    Arm.BASELINE_NAIVE: 0.15,
+    Arm.BASELINE_BLAST: 0.15,
+    Arm.BASELINE_RULES: 0.15,
 }
+"""Arm allocation.
 
-# Until the LLM agent lands, the treatment arm runs the rules-only planner.
-# Stated explicitly in the report so nobody reads the current numbers as an
-# LLM result.
+Rebalanced from 60/10/10/10/10 on 2026-08-23. The old split bought a large
+treatment arm at the cost of baselines too small to compare against: the width
+of every comparison was set by the ~200-episode baseline, not by treatment.
+A comparison is only as precise as its smaller arm, so the baselines were
+raised even though it shrinks the arm the demo draws from."""
+
 STRATEGIES = {
     Arm.TREATMENT: RulesOnly,
     Arm.CONTROL: DoNothing,
@@ -63,24 +68,27 @@ class ArmSummary:
     n: int = 0
     recovered_paise: int = 0
     cost_paise: int = 0
+    externality_paise: int = 0
     recoveries: int = 0
     self_recoveries: int = 0
     contacts: int = 0
     opt_outs: int = 0
     complaints: int = 0
+    disputes: int = 0
     denials: int = 0
     modifications: int = 0
     escalations: int = 0
     diagnosed: int = 0
     diagnosed_correct: int = 0
-    states: Counter = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        self.states = Counter()
+    states: Counter = field(default_factory=Counter)
 
     @property
     def net_paise(self) -> int:
         return self.recovered_paise - self.cost_paise
+
+    @property
+    def net_after_externalities_paise(self) -> int:
+        return self.net_paise - self.externality_paise
 
     @property
     def recovery_rate(self) -> float:
@@ -102,11 +110,13 @@ def summarise(results: list[EpisodeResult]) -> dict[Arm, ArmSummary]:
         s.n += 1
         s.recovered_paise += r.recovered_paise
         s.cost_paise += r.cost_paise
+        s.externality_paise += r.externality_paise
         s.recoveries += 1 if r.recovered else 0
         s.self_recoveries += 1 if r.self_recovered else 0
         s.contacts += r.contacts_made
         s.opt_outs += 1 if r.opted_out else 0
         s.complaints += 1 if r.complained else 0
+        s.disputes += 1 if r.disputed else 0
         s.denials += r.denials
         s.modifications += r.modifications
         s.escalations += 1 if r.escalated else 0
@@ -115,6 +125,68 @@ def summarise(results: list[EpisodeResult]) -> dict[Arm, ArmSummary]:
             s.diagnosed += 1
             s.diagnosed_correct += 1 if r.diagnosis_correct else 0
     return out
+
+
+def run_population(params, policies, costs, *, seed: int, start: _dt.datetime,
+                   chain: HashChain | None = None) -> tuple[list[EpisodeResult], Allocation]:
+    """Simulate one whole world and run every episode through its assigned arm."""
+    population = build_population(params, run_seed=seed, start=start)
+    allocation = stratified_assignment(
+        [(ep.ref, int(ep.amount_paise)) for ep in population.episodes], seed, ARM_SHARES
+    )
+    runner = EpisodeRunner(policies=policies, costs=costs, response=ResponseModel(params),
+                           run_seed=seed, chain=chain)
+    results = [runner.run(ep, allocation[ep.ref], STRATEGIES[allocation[ep.ref]]())
+               for ep in population.episodes]
+    return results, allocation
+
+
+def placebo_halves(
+    results: list[EpisodeResult], allocation: Allocation, *, seed: int
+) -> tuple[list[EpisodeResult], list[EpisodeResult]]:
+    """Split one arm into two, stratified, for a permanent A/A test.
+
+    Comparing treatment against ``baseline_rules`` is only an A/A test while the
+    two happen to run the same strategy; the moment the LLM lands, the harness
+    loses its null control exactly when it starts making claims. Splitting the
+    treatment arm in half gives a comparison whose true difference is *always*
+    zero, whatever the treatment is, so the noise floor can be published beside
+    every real claim forever.
+    """
+    left: list[EpisodeResult] = []
+    right: list[EpisodeResult] = []
+    by_stratum: dict[int, list[EpisodeResult]] = defaultdict(list)
+    for r in results:
+        by_stratum[allocation.stratum[r.ref]].append(r)
+    for stratum in sorted(by_stratum):
+        members = sorted(
+            by_stratum[stratum],
+            key=lambda r: hashlib.sha256(f"placebo|{seed}|{r.ref}".encode()).digest(),
+        )
+        left.extend(members[0::2])
+        right.extend(members[1::2])
+    return left, right
+
+
+def _values(results: list[EpisodeResult], field_name: str) -> list[float]:
+    return [float(getattr(r, field_name)) for r in results]
+
+
+def _rates(results: list[EpisodeResult]) -> list[float]:
+    """Recovery as percentage points, one value per episode.
+
+    A far lower-variance endpoint than rupees: it is bounded, so no single
+    large invoice can move it. Rupees remain the metric that matters, but a
+    rupee comparison that spans zero and a rate comparison that does not are
+    telling you the same thing about the strategy and different things about
+    the amount distribution.
+    """
+    return [100.0 if r.recovered else 0.0 for r in results]
+
+
+def _strata(a: list[EpisodeResult], b: list[EpisodeResult],
+            allocation: Allocation) -> tuple[list[int], list[int]]:
+    return ([allocation.stratum[r.ref] for r in a], [allocation.stratum[r.ref] for r in b])
 
 
 def main() -> int:
@@ -130,19 +202,13 @@ def main() -> int:
     costs = CostBook.load("config/rates.yaml")
     start = _dt.datetime(2026, 6, 1, tzinfo=IST)
 
-    population = build_population(params, run_seed=args.seed, start=start)
-    response = ResponseModel(params)
     chain = HashChain(salt=f"eval-{args.seed}")
-    runner = EpisodeRunner(policies=policies, costs=costs, response=response,
-                           run_seed=args.seed, chain=chain)
-
-    results: list[EpisodeResult] = []
-    for ep in population.episodes:
-        arm = assign_arm(ep.ref, args.seed, ARM_SHARES)
-        results.append(runner.run(ep, arm, STRATEGIES[arm]()))
+    results, allocation = run_population(
+        params, policies, costs, seed=args.seed, start=start, chain=chain
+    )
 
     summaries = summarise(results)
-    report = build_report(args, params, policies, costs, population, results, summaries, chain)
+    report = build_report(args, params, policies, costs, results, allocation, summaries, chain)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
@@ -153,25 +219,38 @@ def main() -> int:
     return 0
 
 
-def build_report(args, params, policies, costs, population, results, summaries, chain) -> str:
-    treat = summaries.get(Arm.TREATMENT)
-    control = summaries.get(Arm.CONTROL)
+def build_report(args, params, policies, costs, results, allocation, summaries, chain) -> str:
+    treat = summaries[Arm.TREATMENT]
+    control = summaries[Arm.CONTROL]
 
     by_arm: dict[Arm, list[EpisodeResult]] = defaultdict(list)
     for r in results:
         by_arm[r.arm].append(r)
 
-    incremental = bootstrap_difference(
-        [float(r.recovered_paise) for r in by_arm[Arm.TREATMENT]],
-        [float(r.recovered_paise) for r in by_arm[Arm.CONTROL]],
-        seed=args.seed,
-    )
+    def comparison(other: Arm, field_name: str = "recovered_paise") -> Comparison:
+        t, o = by_arm[Arm.TREATMENT], by_arm[other]
+        return compare(str(other), _values(t, field_name), _values(o, field_name),
+                       seed=args.seed, strata=_strata(t, o, allocation))
+
+    def rate_comparison(other: Arm) -> Comparison:
+        t, o = by_arm[Arm.TREATMENT], by_arm[other]
+        return compare(str(other), _rates(t), _rates(o),
+                       seed=args.seed, strata=_strata(t, o, allocation))
+
+    left, right = placebo_halves(by_arm[Arm.TREATMENT], allocation, seed=args.seed)
+    placebo = compare("placebo A/A", _values(left, "recovered_paise"),
+                      _values(right, "recovered_paise"), seed=args.seed,
+                      strata=_strata(left, right, allocation))
+
+    headline = comparison(Arm.CONTROL)
+    incremental = headline.interval.scaled(treat.n)
     net_incremental = incremental.point - treat.cost_paise
+    net_after_ext = net_incremental - treat.externality_paise
 
     verification = verify_chain(chain)
     total_at_risk = sum(r.amount_paise for r in results)
 
-    L = []
+    L: list[str] = []
     A = L.append
     A("# Wapas — evaluation report")
     A("")
@@ -193,9 +272,13 @@ def build_report(args, params, policies, costs, population, results, summaries, 
     A(f"| Control arm, untreated, scaled to treatment size | "
       f"{format_inr(int(control.recovered_paise * treat.n / max(1, control.n)))} |")
     A(f"| **Incremental recovery** | **{format_inr(int(incremental.point))}** "
-      f"(95% CI [{format_inr(int(incremental.low))}, {format_inr(int(incremental.high))}]) |")
-    A(f"| Cost of treatment | {format_inr(treat.cost_paise)} |")
+      f"(95% CI [{format_inr(int(incremental.low))}, {format_inr(int(incremental.high))}], "
+      f"p = {headline.p_value:.4f}) |")
+    A(f"| Realised cost of treatment | {format_inr(treat.cost_paise)} |")
     A(f"| **Net incremental recovery** | **{format_inr(int(net_incremental))}** |")
+    A(f"| Modelled externalities (opt-outs, complaints, disputes) | "
+      f"less {format_inr(treat.externality_paise)} |")
+    A(f"| **Net after externalities** | **{format_inr(int(net_after_ext))}** |")
     A(f"| Cost per ₹100 recovered | ₹{treat.cost_per_100_recovered:.2f} |")
     A(f"| Policy denials (actions blocked before execution) | {treat.denials} |")
     A(f"| Policy modifications (rescheduled, not dropped) | {treat.modifications} |")
@@ -206,14 +289,39 @@ def build_report(args, params, policies, costs, population, results, summaries, 
       "Reporting gross recovery would have claimed credit for every one of them.")
     A("")
 
+    A("## How this experiment is designed")
+    A("")
+    A("| | |")
+    A("|---|---|")
+    A(f"| Allocation | stratified by amount decile, {len(ARM_SHARES)} arms, "
+      + " / ".join(f"{int(v * 100)}%" for v in ARM_SHARES.values()) + " |")
+    A("| Decision rule | two-sided stratified permutation test at the 5% level |")
+    A("| Interval | percentile bootstrap over episodes, 10,000 resamples |")
+    A("| Null control | placebo split of the treatment arm, reported below |")
+    A("")
+    A("Amounts are lognormal with a long right tail, so which arm happens to receive")
+    A("the largest invoices matters more than any strategy does. Simple randomisation")
+    A("balances that only in expectation; stratifying by amount decile balances it on")
+    A("**every** run, to within one episode per decile. The permutation test then")
+    A("shuffles labels within those same deciles, because that is the randomisation")
+    A("the experiment actually performed.")
+    A("")
+    A("Stratifying buys **precision, not correctness**. Both designs randomise, so")
+    A("both reject a true null at the nominal rate; what stratifying removes is")
+    A("variance, which narrows the bar a real effect has to clear. This distinction is")
+    A("measured rather than asserted — see `results/calibration.md`, which also")
+    A("records that the earlier A/A failure was an ordinary one-in-twenty event on one")
+    A("seed rather than a broken procedure.")
+    A("")
+
     A("## Arms")
     A("")
     A("Arms differ in size, so **totals are not comparable** — the per-episode")
     A("columns are the ones to read.")
     A("")
-    A("| Arm | n | Recovery rate | Gross / episode | Net / episode | Contacts / episode | "
-      "Opt-out rate | Complaints |")
-    A("|---|---|---|---|---|---|---|---|")
+    A("| Arm | n | Recovery rate | Gross / ep | Net / ep | Net after ext. / ep | "
+      "Contacts / ep | Opt-out rate | Complaints |")
+    A("|---|---|---|---|---|---|---|---|---|")
     for arm in (Arm.TREATMENT, Arm.BASELINE_RULES, Arm.BASELINE_NAIVE,
                 Arm.BASELINE_BLAST, Arm.CONTROL):
         s = summaries.get(arm)
@@ -222,65 +330,89 @@ def build_report(args, params, policies, costs, population, results, summaries, 
         A(f"| `{arm}` | {s.n} | {s.recovery_rate:.1%} | "
           f"{format_inr(s.recovered_paise // max(1, s.n))} | "
           f"{format_inr(s.net_paise // max(1, s.n))} | "
+          f"{format_inr(s.net_after_externalities_paise // max(1, s.n))} | "
           f"{s.contacts / max(1, s.n):.2f} | "
           f"{s.opt_out_rate:.1%} | {s.complaints} |")
     A("")
 
     A("### Treatment against each baseline")
     A("")
-    A("Incremental recovery per 1,000 episodes, with a 95% bootstrap CI over")
-    A("episodes. A CI spanning zero means we cannot claim a difference.")
+    A("Difference in gross recovery per 1,000 episodes. The **p-value decides**;")
+    A("the interval describes the size. A comparison is only as precise as its")
+    A("smaller arm.")
     A("")
-    A("| Compared with | Incremental / 1,000 episodes | 95% CI | Claim supported? |")
-    A("|---|---|---|---|")
+    A("| Compared with | n | Δ gross / 1,000 ep | 95% CI | p | Claim supported? |")
+    A("|---|---|---|---|---|---|")
     for other in (Arm.CONTROL, Arm.BASELINE_NAIVE, Arm.BASELINE_BLAST, Arm.BASELINE_RULES):
-        if other not in by_arm or not by_arm[other]:
+        if not by_arm.get(other):
             continue
-        iv = bootstrap_difference(
-            [float(r.recovered_paise) for r in by_arm[Arm.TREATMENT]],
-            [float(r.recovered_paise) for r in by_arm[other]],
-            seed=args.seed,
-        )
-        n_t = len(by_arm[Arm.TREATMENT])
-        per_k = 1000 / max(1, n_t)
-        supported = "yes" if iv.low > 0 else ("no — CI spans zero" if iv.high > 0 else "worse")
-        if other is Arm.BASELINE_RULES:
-            supported += "  ← **A/A test, see below**"
-        A(f"| `{other}` | {format_inr(int(iv.point * per_k))} | "
-          f"[{format_inr(int(iv.low * per_k))}, {format_inr(int(iv.high * per_k))}] | "
-          f"{supported} |")
+        c = comparison(other)
+        iv = c.interval.scaled(1000)
+        note = "  ← **A/A, see below**" if other is Arm.BASELINE_RULES else ""
+        A(f"| `{other}` | {c.n_other} | {format_inr(int(iv.point))} | "
+          f"[{format_inr(int(iv.low))}, {format_inr(int(iv.high))}] | "
+          f"{c.p_value:.4f} | {c.verdict()}{note} |")
     A("")
-    A("#### A/A sanity check — read this before believing any row above")
+
+    A("#### The same comparison on recovery rate")
     A("")
-    A("`treatment` and `baseline_rules` currently run the **same strategy**. The true")
-    A("difference between them is exactly zero, so that row is an A/A test and any")
-    A("result other than \"CI spans zero\" is a **false positive**.")
+    A("Rupees are what matter and rupees are heavy-tailed, so the interval above is")
+    A("wide almost regardless of the strategy. Recovery rate is bounded and therefore")
+    A("far more powerful at the same sample size. Both are reported; neither is")
+    A("chosen after seeing the answer.")
     A("")
-    rules_iv = bootstrap_difference(
-        [float(r.recovered_paise) for r in by_arm[Arm.TREATMENT]],
-        [float(r.recovered_paise) for r in by_arm.get(Arm.BASELINE_RULES, [])],
-        seed=args.seed,
-    )
-    if rules_iv.low > 0 or rules_iv.high < 0:
-        A("**On this seed the A/A test fails**: the interval excludes zero even though")
-        A("there is nothing to detect. The cause is arm size — the baseline arms hold")
-        A(f"~{len(by_arm.get(Arm.BASELINE_RULES, []))} episodes against treatment's "
-          f"{len(by_arm[Arm.TREATMENT])} — combined with a heavy-tailed amount")
-        A("distribution in which a few large recoveries move the mean a long way.")
-        A("")
-        A("Consequences we accept rather than hide:")
-        A("")
-        A("- The `baseline_naive` comparison above is the one that matters, and it")
-        A("  **already spans zero**. We currently cannot claim to beat the industry")
-        A("  default. Saying so now is cheaper than discovering it on camera.")
-        A("- Before the final run: raise baseline arm sizes, stratify assignment by")
-        A("  amount decile, and report the A/A interval alongside every A/B interval.")
+    A("| Compared with | Δ recovery rate (pp) | 95% CI | p | Claim supported? |")
+    A("|---|---|---|---|---|")
+    for other in (Arm.CONTROL, Arm.BASELINE_NAIVE, Arm.BASELINE_BLAST, Arm.BASELINE_RULES):
+        if not by_arm.get(other):
+            continue
+        c = rate_comparison(other)
+        A(f"| `{other}` | {c.interval.point:+.2f} | "
+          f"[{c.interval.low:+.2f}, {c.interval.high:+.2f}] | "
+          f"{c.p_value:.4f} | {c.verdict()} |")
+    A("")
+
+    A("#### Null controls — read these before believing any row above")
+    A("")
+    placebo_iv = placebo.interval.scaled(1000)
+    A(f"**Placebo split.** The treatment arm is cut into two stratified halves "
+      f"({placebo.n_treatment} / {placebo.n_other} episodes) that ran the *same*")
+    A("strategy on the *same* seed. The true difference is exactly zero by")
+    A("construction, so this measures what the harness reports when there is nothing")
+    A("to report. It stays valid after the LLM lands, which the")
+    A("`treatment` vs `baseline_rules` row will not.")
+    A("")
+    A(f"> Δ = {format_inr(int(placebo_iv.point))} per 1,000 episodes, "
+      f"95% CI [{format_inr(int(placebo_iv.low))}, {format_inr(int(placebo_iv.high))}], "
+      f"p = {placebo.p_value:.4f} — "
+      + ("**FALSE POSITIVE**" if placebo.significant else "correctly not significant"))
+    A("")
+    if placebo.significant:
+        A("The placebo fired. **Every significance claim in this report is suspect on")
+        A("this seed** and should not be quoted. Investigate before using these numbers.")
     else:
-        A("On this seed the A/A interval spans zero, as it should.")
+        A("The noise floor for a comparison of this size is roughly ±"
+          f"{format_inr(int(max(abs(placebo_iv.low), abs(placebo_iv.high))))} per 1,000")
+        A("episodes. A difference smaller than that is not a difference.")
+    A("")
+    rules_c = comparison(Arm.BASELINE_RULES)
+    placebo_rate = compare("placebo A/A rate", _rates(left), _rates(right),
+                           seed=args.seed, strata=_strata(left, right, allocation))
+    A(f"On recovery rate the same placebo gives {placebo_rate.interval.point:+.2f} pp, "
+      f"p = {placebo_rate.p_value:.4f} — "
+      + ("**FALSE POSITIVE**." if placebo_rate.significant else "correctly not significant."))
+    A("")
+    A(f"**Second A/A.** `treatment` and `baseline_rules` also run the same strategy "
+      f"today: p = {rules_c.p_value:.4f} — "
+      + ("a false positive." if rules_c.significant else "correctly not significant."))
+    A("")
+    A("One seed cannot establish a false-positive *rate*. `make calibrate` runs the")
+    A("placebo across many seeds and reports the measured rate against the nominal 5%;")
+    A("see `results/calibration.md`.")
     A("")
 
     blast = summaries.get(Arm.BASELINE_BLAST)
-    if blast and control:
+    if blast:
         A("### The aggression trade")
         A("")
         A(f"`baseline_blast` recovers {blast.recovery_rate:.1%} of episodes against "
@@ -289,12 +421,35 @@ def build_report(args, params, policies, costs, population, results, summaries, 
           f"{treat.contacts / max(1, treat.n):.2f}, and produces an opt-out rate of "
           f"{blast.opt_out_rate:.1%} against {treat.opt_out_rate:.1%}.")
         A("")
-        A("**We are not yet able to show that guardrails pay for themselves.** Channel")
-        A("spend is the only cost currently in the ledger, and at "
-          f"{format_inr(treat.cost_paise)} across {treat.n} episodes it is far too small to")
-        A("swing the net figure. The real cost of aggression is the *future* revenue from")
-        A("a customer who opts out, and that is not priced yet. Until it is, the honest")
-        A("statement is that blast wins gross and we cannot say what it loses.")
+        A("Channel spend cannot settle this argument. An SMS costs 12 paise and a")
+        A("recovered invoice is worth thousands of rupees, so on a spend-only ledger the")
+        A("optimal strategy is always to contact more. What actually disciplines contact")
+        A("frequency is the revenue destroyed when a customer opts out, so that is now")
+        A("priced — see `externalities` in `config/rates.yaml`.")
+        A("")
+        A("| Arm | Gross / ep | Realised cost / ep | Externalities / ep | Net after ext. / ep |")
+        A("|---|---|---|---|---|")
+        for arm in (Arm.TREATMENT, Arm.BASELINE_BLAST, Arm.BASELINE_NAIVE, Arm.BASELINE_RULES):
+            s = summaries.get(arm)
+            if not s:
+                continue
+            A(f"| `{arm}` | {format_inr(s.recovered_paise // max(1, s.n))} | "
+              f"{format_inr(s.cost_paise // max(1, s.n))} | "
+              f"{format_inr(s.externality_paise // max(1, s.n))} | "
+              f"{format_inr(s.net_after_externalities_paise // max(1, s.n))} |")
+        A("")
+        net_c = comparison(Arm.BASELINE_BLAST, "net_after_externalities_paise")
+        net_iv = net_c.interval.scaled(1000)
+        A(f"Treatment against blast on **net after externalities**: "
+          f"{format_inr(int(net_iv.point))} per 1,000 episodes, "
+          f"95% CI [{format_inr(int(net_iv.low))}, {format_inr(int(net_iv.high))}], "
+          f"p = {net_c.p_value:.4f} — {net_c.verdict()}.")
+        A("")
+        A("**The externality figures are assumptions, not measurements**, and they are")
+        A("the most contestable numbers in this project. They are reported on their own")
+        A("line, and the net-before-externalities column is kept, so a reader who")
+        A("rejects the model can still read every other result. The sensitivity sweep")
+        A("varies them by ±30% like everything else.")
         A("")
 
     A("## Diagnosis accuracy")
@@ -313,7 +468,7 @@ def build_report(args, params, policies, costs, population, results, summaries, 
     A("|---|---|---|---|---|")
     all_states = sorted({st for s in summaries.values() for st in s.states})
     for st in all_states:
-        row = [summaries.get(a).states.get(st, 0) if summaries.get(a) else 0
+        row = [summaries[a].states.get(st, 0) if a in summaries else 0
                for a in (Arm.TREATMENT, Arm.BASELINE_NAIVE, Arm.BASELINE_BLAST, Arm.CONTROL)]
         A(f"| `{st}` | {row[0]} | {row[1]} | {row[2]} | {row[3]} |")
     A("")
@@ -339,7 +494,8 @@ def build_report(args, params, policies, costs, population, results, summaries, 
     A("- Self-recovery is credited to whichever arm the episode fell in, including")
     A("  treatment. That is correct — it is exactly what the control arm subtracts —")
     A("  but it means the gross figure above is *not* the agent's achievement.")
-    A("- Costs currently cover channel spend only. LLM token cost joins the ledger")
+    A("- Externality pricing is a model, not a measurement. See the aggression trade.")
+    A("- Realised costs cover channel spend only. LLM token cost joins the ledger")
     A("  when the agent lands; free-tier models are priced notionally (see")
     A("  `config/rates.yaml`).")
     A("")

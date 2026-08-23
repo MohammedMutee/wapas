@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval redteam replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval calibrate redteam replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -39,6 +39,9 @@ seed:            ## Load a seeded synthetic scenario
 eval:            ## Run the full batch evaluation and regenerate results/report.md
 	$(PY) -m eval.run_batch --seed $${SEED:-20260901}
 
+calibrate:       ## Measure the false-positive rate of the evaluation on known nulls
+	$(PY) -m eval.calibrate --seeds $${SEEDS:-300}
+
 redteam:         ## Run the adversarial suite. Expect 0 escapes.
 	$(PY) -m redteam.run
 
@@ -49,11 +52,11 @@ test:            ## Run unit + property tests
 	$(VENV)/bin/pytest
 
 lint:            ## Lint
-	$(VENV)/bin/ruff check src tests eval sim redteam
+	$(VENV)/bin/ruff check src tests eval sim scripts
 
 fmt:             ## Format
-	$(VENV)/bin/ruff format src tests eval sim redteam
-	$(VENV)/bin/ruff check --fix src tests eval sim redteam
+	$(VENV)/bin/ruff format src tests eval sim scripts
+	$(VENV)/bin/ruff check --fix src tests eval sim scripts
 
 typecheck:       ## Strict typing on the modules where bugs are credibility bugs
 	$(VENV)/bin/mypy

@@ -70,7 +70,7 @@ def format_inr(paise: Paise | int, *, compact: bool = False) -> str:
     whole, _, frac = f"{value:.2f}".partition(".")
     if len(whole) > 3:
         head, tail = whole[:-3], whole[-3:]
-        groups = []
+        groups: list[str] = []
         while len(head) > 2:
             groups.insert(0, head[-2:])
             head = head[:-2]

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from sim.populations import SeededEpisode
@@ -27,7 +28,6 @@ from ..audit.chain import canonical_json
 from ..domain import (
     ALWAYS_ALLOWED,
     CONTACT_ACTIONS,
-    DISPOSITIONS,
     Arm,
     AttributionMethod,
     Channel,
@@ -52,11 +52,19 @@ bug must not become an unbounded spend."""
 
 
 def assign_arm(episode_ref: str, run_seed: int, shares: dict[Arm, float]) -> Arm:
-    """Deterministic, stratified arm assignment.
+    """Deterministic, unstratified arm assignment.
 
     Derived by hashing the episode reference with the run seed, so assignment
     is reproducible, independent of iteration order, and stable if episodes are
     added or removed.
+
+    This is simple randomisation, and simple randomisation is what produced the
+    A/A false positive documented in ``DECISIONS.md`` (D19): with heavy-tailed
+    amounts, two arms drawn this way can differ in composition enough that a
+    difference appears between arms running *identical* strategies. The batch
+    evaluation uses :func:`stratified_assignment` instead. This function stays
+    because the property tests want a one-episode-at-a-time assigner, and
+    because the report compares the two designs.
     """
     digest = hashlib.sha256(f"{run_seed}|{episode_ref}".encode()).digest()
     draw = int.from_bytes(digest[:4], "big") / 0xFFFFFFFF
@@ -66,6 +74,98 @@ def assign_arm(episode_ref: str, run_seed: int, shares: dict[Arm, float]) -> Arm
         if draw < cumulative:
             return arm
     return next(reversed(shares))
+
+
+STRATA = 10
+"""Amount deciles. Ten is the usual choice and is enough that the largest
+episodes cannot pile into one arm; more strata would leave too few episodes per
+cell for the smaller arms."""
+
+
+@dataclass(frozen=True, slots=True)
+class Allocation:
+    """The result of stratified randomisation.
+
+    ``stratum`` is kept, not discarded, because the permutation test has to
+    shuffle labels within the same strata the design used. An analysis that
+    ignores the stratification it was given is testing a null the experiment
+    never ran.
+    """
+
+    arm: dict[str, Arm]
+    stratum: dict[str, int]
+
+    def __getitem__(self, ref: str) -> Arm:
+        return self.arm[ref]
+
+
+def stratified_assignment(
+    episodes: Sequence[tuple[str, int]],
+    run_seed: int,
+    shares: dict[Arm, float],
+    *,
+    strata: int = STRATA,
+) -> Allocation:
+    """Randomise arms within amount deciles.
+
+    Takes ``(ref, amount_paise)`` pairs. Episodes are ranked by amount into
+    equal-count strata; within each stratum they are ordered by a hash of
+    ``run_seed|ref`` — pseudo-random but independent of the amount — and dealt
+    to arms by largest-remainder apportionment.
+
+    The guarantee is that every arm receives the same *amount profile* to
+    within one episode per decile. Under simple randomisation the arms are
+    equal in expectation only, and with a lognormal amount distribution the
+    realised difference on any one seed is large enough to swamp a real effect.
+    Stratifying removes that variance instead of hoping it averages out.
+
+    Assignment remains deterministic in ``run_seed`` and stable under
+    reordering of the input, but *not* under adding or removing episodes: ranks
+    shift. That is the price of stratification, and it is acceptable because
+    the population is regenerated from the seed anyway.
+    """
+    if not episodes:
+        return Allocation(arm={}, stratum={})
+
+    ordered = sorted(episodes, key=lambda e: (e[1], e[0]))
+    n = len(ordered)
+    stratum_of: dict[str, int] = {
+        ref: min(strata - 1, rank * strata // n) for rank, (ref, _) in enumerate(ordered)
+    }
+
+    buckets: dict[int, list[str]] = {}
+    for ref, index in stratum_of.items():
+        buckets.setdefault(index, []).append(ref)
+
+    assignment: dict[str, Arm] = {}
+    for index in sorted(buckets):
+        members = sorted(
+            buckets[index],
+            key=lambda ref: hashlib.sha256(f"{run_seed}|{ref}".encode()).digest(),
+        )
+        for ref, arm in zip(members, _apportion(len(members), shares), strict=True):
+            assignment[ref] = arm
+    return Allocation(arm=assignment, stratum=stratum_of)
+
+
+def _apportion(size: int, shares: dict[Arm, float]) -> list[Arm]:
+    """Largest-remainder apportionment of ``size`` slots across arms.
+
+    Floor each arm's exact quota, then hand the leftover slots to the arms with
+    the largest fractional parts, breaking ties by arm name so the result does
+    not depend on dict ordering.
+    """
+    exact = {arm: size * share for arm, share in shares.items()}
+    counts = {arm: int(quota) for arm, quota in exact.items()}
+    leftover = size - sum(counts.values())
+    ranked = sorted(exact, key=lambda a: (-(exact[a] - counts[a]), str(a)))
+    for arm in ranked[:leftover]:
+        counts[arm] += 1
+
+    out: list[Arm] = []
+    for arm in shares:
+        out.extend([arm] * counts[arm])
+    return out
 
 
 @dataclass
@@ -79,6 +179,11 @@ class EpisodeResult:
     amount_paise: Paise
     recovered_paise: Paise = ZERO
     cost_paise: Paise = ZERO
+    externality_paise: Paise = ZERO
+    """Modelled future revenue destroyed by an adverse reaction — an opt-out,
+    a complaint, a dispute. Kept apart from ``cost_paise``, which is money
+    actually spent, because the two have very different standards of evidence
+    and a reader is entitled to reject one and keep the other."""
     actions_taken: int = 0
     contacts_made: int = 0
     retries: int = 0
@@ -99,7 +204,13 @@ class EpisodeResult:
 
     @property
     def net_paise(self) -> Paise:
+        """Realised money only: recovered less spend actually incurred."""
         return Paise(self.recovered_paise - self.cost_paise)
+
+    @property
+    def net_after_externalities_paise(self) -> Paise:
+        """Net including the modelled cost of adverse reactions."""
+        return Paise(self.net_paise - self.externality_paise)
 
     @property
     def recovered(self) -> bool:
@@ -149,11 +260,18 @@ class EpisodeRunner:
         now = ep.occurred_at
         # Two distinct windows, and conflating them is how a control arm ends up
         # recovering nothing:
-        #   action_horizon  — how long it is worth ACTING, which varies by cause
-        #   observe_until   — how long we WATCH for an outcome, identical for
-        #                     every arm so the comparison is fair
+        #   action_horizon  — how long an episode may be WORKED
+        #   watch_until     — how long we WATCH for an outcome
+        #
+        # Both are identical for every arm, and neither may depend on the true
+        # root cause. An earlier version set action_horizon from
+        # DISPOSITIONS[ep.true_cause], which meant the harness was giving every
+        # strategy an oracle-derived stopping rule: the agent looked good at
+        # knowing when to give up without ever having decided it, and the naive
+        # ladder was cut short by information it cannot see. Knowing when to
+        # stop is now something a strategy has to earn.
         action_horizon = ep.occurred_at + _dt.timedelta(
-            hours=DISPOSITIONS[ep.true_cause].default_horizon_hours or 24
+            hours=self.policies.money.triage.action_window_hours
         )
         watch_until = observe_until or (ep.occurred_at + _dt.timedelta(days=30))
         self._audit(now, "system", "episode_opened", ep.ref,
@@ -334,13 +452,26 @@ class EpisodeRunner:
 
         if reaction.complained:
             result.complained = True
+            self._book_externality(
+                result, ep, now, "complaint", self.costs.externalities.complaint_paise
+            )
         if reaction.disputed:
             result.disputed = True
+            self._book_externality(
+                result, ep, now, "dispute", self.costs.externalities.dispute_paise
+            )
             result.state = EpisodeState.SUPPRESSED
             result.terminal_reason = "buyer raised a dispute; collections stopped"
             return True
         if reaction.opted_out:
             result.opted_out = True
+            self._book_externality(
+                result, ep, now, "opt_out",
+                self.costs.externalities.opt_out_cost(
+                    ep.amount_paise,
+                    is_business=getattr(ep.counterparty, "is_business", False),
+                ),
+            )
             result.state = EpisodeState.SUPPRESSED
             result.terminal_reason = "counterparty opted out"
             return True
@@ -448,6 +579,25 @@ class EpisodeRunner:
                     {"kind": str(CostKind(str(channel)) if str(channel) in
                                  {c.value for c in CostKind} else CostKind.SMS),
                      "amount_paise": unit})
+
+    def _book_externality(
+        self,
+        result: EpisodeResult,
+        ep: SeededEpisode,
+        now: _dt.datetime,
+        kind: str,
+        amount: Paise,
+    ) -> None:
+        """Record a modelled future loss.
+
+        Audited under its own event type, never as ``cost``, so an auditor
+        reading the chain can tell realised spend from a projection.
+        """
+        if amount <= 0:
+            return
+        result.externality_paise = Paise(result.externality_paise + amount)
+        self._audit(now, "system", "externality", ep.ref,
+                    {"kind": kind, "amount_paise": int(amount), "modelled": True})
 
     def _audit(
         self, at: _dt.datetime, actor: str, event: str, ref: str, payload: dict

@@ -39,6 +39,47 @@ class ModelRate:
 
 
 @dataclass(frozen=True, slots=True)
+class Externalities:
+    """What an adverse reaction costs beyond the message that caused it.
+
+    Channel spend alone cannot show whether guardrails are worth their cost:
+    an SMS is 12 paise and a recovered invoice is thousands of rupees, so on a
+    channel-spend-only ledger the correct strategy is always to contact more.
+    The cost that actually disciplines contact frequency is the future revenue
+    lost when a customer opts out — so it has to be priced, or the guardrails
+    are being defended on assertion.
+
+    Every figure here is a modelling assumption. They are booked separately
+    from realised spend and the report prints net both with and without them.
+    """
+
+    horizon_months: int
+    future_episodes_per_year: dict[str, Decimal]
+    recoverable_share: Decimal
+    contactability_loss: Decimal
+    complaint_paise: Paise
+    dispute_paise: Paise
+
+    def opt_out_cost(self, amount: Paise, *, is_business: bool) -> Paise:
+        """Forgone future recovery from losing a contactable customer.
+
+        Uses this episode's amount as the estimate of the customer's future
+        ticket size. Rounded up, like every other cost in this module: when the
+        cost line is uncertain, understate the net recovery rather than
+        overstate it.
+        """
+        per_year = self.future_episodes_per_year["business" if is_business else "consumer"]
+        expected = (
+            Decimal(int(amount))
+            * per_year
+            * (Decimal(self.horizon_months) / 12)
+            * self.recoverable_share
+            * self.contactability_loss
+        )
+        return Paise(int(expected.to_integral_value(rounding="ROUND_CEILING")))
+
+
+@dataclass(frozen=True, slots=True)
 class CostBook:
     """Loaded rate card. Immutable, versioned, and stamped onto every report."""
 
@@ -47,6 +88,7 @@ class CostBook:
     usd_inr: Decimal
     models: dict[str, ModelRate]
     channels: dict[str, Paise]
+    externalities: Externalities
 
     @classmethod
     def load(cls, path: str | Path = "config/rates.yaml") -> CostBook:
@@ -68,12 +110,26 @@ class CostBook:
                 per_min = Decimal(str(v["paise_per_minute"]))
                 mins = Decimal(str(v.get("assumed_minutes", 1)))
                 channels[name] = Paise(int((per_min * mins).to_integral_value()))
+        ext = data.get("externalities") or {}
+        opt = ext.get("opt_out") or {}
         return cls(
             version=str(data["version"]),
             pinned_on=str(data["pinned_on"]),
             usd_inr=Decimal(str(data["fx"]["usd_inr"])),
             models=models,
             channels=channels,
+            externalities=Externalities(
+                horizon_months=int(opt.get("horizon_months", 12)),
+                future_episodes_per_year={
+                    k: Decimal(str(v))
+                    for k, v in (opt.get("future_episodes_per_year") or {}).items()
+                }
+                or {"consumer": Decimal("0"), "business": Decimal("0")},
+                recoverable_share=Decimal(str(opt.get("recoverable_share", 0))),
+                contactability_loss=Decimal(str(opt.get("contactability_loss", 0))),
+                complaint_paise=Paise(int((ext.get("complaint") or {}).get("handling_paise", 0))),
+                dispute_paise=Paise(int((ext.get("dispute") or {}).get("handling_paise", 0))),
+            ),
         )
 
     def model_rate(self, model: str) -> ModelRate:
