@@ -70,6 +70,12 @@ class GateContext:
     root_cause: RootCause
     amount_paise: Paise
 
+    # what the diagnosis was unsure about
+    alternative_cause: RootCause | None = None
+    """The runner-up cause, when the classifier expressed one. A keyword table
+    cannot produce this; a calibrated model can, and the gate uses it."""
+    diagnosis_confidence: float = 1.0
+
     # consumption
     actions_used: int = 0
     contacts_used: int = 0
@@ -196,6 +202,32 @@ class PolicyGate:
             checked.append("never_retry_cause")
             if ctx.root_cause in m.never_retry_causes or not disposition.retry_allowed:
                 return self._deny(("never_retry_cause", f"cause:{ctx.root_cause}"))
+
+            # Under uncertainty, act safely for every cause still in play.
+            #
+            # A confident diagnosis of a retryable cause permits a retry. A
+            # *hesitant* one that also names a never-retryable runner-up does
+            # not: if the payment might be a dead card or a risk decline,
+            # re-presenting it is exactly the action we would refuse if we
+            # knew. Measured cost of not doing this: the model arm ran 66
+            # forbidden retries per 1,000 episodes against the keyword arm's
+            # 48, because honest `unknown` answers routed to a playbook that
+            # retries.
+            #
+            # This rule is the one thing structured model output buys that a
+            # keyword classifier cannot express. A regex returns one label; a
+            # calibrated model returns a label, a confidence and what else it
+            # might have been.
+            if (
+                ctx.alternative_cause is not None
+                and ctx.alternative_cause in m.never_retry_causes
+                and ctx.diagnosis_confidence < 0.75
+            ):
+                return self._deny((
+                    "alternative_cause_never_retryable",
+                    f"alt:{ctx.alternative_cause}",
+                    f"confidence:{ctx.diagnosis_confidence:.2f}",
+                ))
 
             checked.append("verify_before_retry")
             if ctx.root_cause in m.verify_before_retry_causes and not ctx.capture_verified:

@@ -177,14 +177,19 @@ class LLMDiagnoser:
         self, parsed: DiagnosisResponse, digest: str, *, cached: bool,
         served_by: str = "",
     ) -> Diagnosis:
-        evidence = list(parsed.evidence)
+        # ``Diagnosis.evidence`` caps at five. The prompt digest is the replay
+        # key and must always survive, and the runner-up is the model's own
+        # statement of ambiguity, so the model's quotes are what gets trimmed.
+        quotes = list(parsed.evidence)
+        tail = [f"prompt {digest[:12]}"]
         if parsed.alternative_cause is not None:
-            evidence.append(f"runner-up considered: {parsed.alternative_cause}")
-        evidence.append(f"prompt {digest[:12]}")
+            tail.insert(0, f"runner-up considered: {parsed.alternative_cause}")
+        evidence = quotes[: max(0, 5 - len(tail))] + tail
         return Diagnosis(
             root_cause=parsed.root_cause,
             confidence=parsed.confidence,
-            evidence=evidence[:6],
+            alternative_cause=parsed.alternative_cause,
+            evidence=evidence,
             recoverable=parsed.recoverable,
             recommended_horizon_hours=parsed.recommended_horizon_hours,
             notes=(parsed.notes or f"{served_by}{' (cached)' if cached else ''}")[:280],

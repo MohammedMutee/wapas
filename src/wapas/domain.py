@@ -415,6 +415,16 @@ class Diagnosis(BaseModel):
 
     root_cause: RootCause
     confidence: float = Field(ge=0.0, le=1.0)
+    alternative_cause: RootCause | None = None
+    """The runner-up when the evidence is genuinely ambiguous.
+
+    Load-bearing rather than decorative. A keyword table returns one label and
+    no sense of what else it might have been; a model can say "probably A, but
+    possibly B", and if B is something we must never retry then the safe action
+    under that uncertainty is to not retry — even though A alone would permit
+    it. That is the gate's ``alternative_cause_never_retryable`` rule, and it is
+    the clearest thing structured model output buys that a classifier cannot.
+    """
     evidence: list[str] = Field(default_factory=list, max_length=5)
     recoverable: bool
     recommended_horizon_hours: int = Field(ge=0, le=2160)

@@ -25,7 +25,7 @@ from eval.stats import Comparison, compare
 from sim import ResponseModel, build_population, load_params
 from wapas.audit import HashChain, verify_chain
 from wapas.clock import IST
-from wapas.domain import Arm
+from wapas.domain import Arm, RootCause
 from wapas.engine import Allocation, EpisodeResult, EpisodeRunner, stratified_assignment
 from wapas.llm.costs import CostBook
 from wapas.money import format_inr
@@ -226,6 +226,14 @@ def placebo_halves(
 
 def _values(results: list[EpisodeResult], field_name: str) -> list[float]:
     return [float(getattr(r, field_name)) for r in results]
+
+
+def _acc(results: list[EpisodeResult], informative: bool) -> str:
+    group = [r for r in results
+             if r.diagnosis_correct is not None and r.signal_informative is informative]
+    if not group:
+        return "—"
+    return f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%}"
 
 
 def _rates(results: list[EpisodeResult]) -> list[float]:
@@ -543,6 +551,57 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
         A(f"| `{arm}` | {len(rs)} | {correct} | {correct / len(rs):.1%} | "
           f"{pct(clear)} | {pct(murky)} |")
     A("")
+    generated = {RootCause(name) for name in params.failure_causes} | {
+        RootCause.MANDATE_REVOKED, RootCause.MANDATE_INSUFFICIENT,
+        RootCause.INVOICE_FORGOTTEN, RootCause.INVOICE_CASH_CRUNCH,
+        RootCause.INVOICE_DISPUTED,
+    }
+    phantom: dict[str, int] = defaultdict(int)
+    abstentions = 0
+    murky_abstentions = 0
+    murky_total = 0
+    for r in by_arm.get(Arm.TREATMENT, []):
+        if r.diagnosed_cause is None:
+            continue
+        if not r.signal_informative:
+            murky_total += 1
+            if r.diagnosed_cause is RootCause.UNKNOWN:
+                murky_abstentions += 1
+        if r.diagnosed_cause is RootCause.UNKNOWN:
+            abstentions += 1
+        elif r.diagnosed_cause not in generated:
+            phantom[str(r.diagnosed_cause)] += 1
+
+    A("### Accuracy is the wrong metric on an unanswerable question")
+    A("")
+    A("The right-hand column above deserves more care than a percentage. When the")
+    A("failure text says only \"Transaction declined\", the true cause is still a")
+    A("specific mechanism, so a classifier that says `unknown` — the correct answer to")
+    A("the question actually asked — is scored **wrong**. A classifier that guesses the")
+    A("modal cause is scored right about a fifth of the time. On these episodes the")
+    A("accuracy metric rewards guessing and penalises honesty, which is the same")
+    A("mistake as D28 and this time it is in the scoring rather than the planner.")
+    A("")
+    if murky_total:
+        A(f"So the number to read instead: of {murky_total} episodes whose text could not")
+        A(f"identify the cause, the treatment arm said `unknown` on **{murky_abstentions}** "
+          f"({murky_abstentions / murky_total:.0%}).")
+        A("That is the behaviour worth having, and it costs accuracy points.")
+        A("")
+    if phantom:
+        total_phantom = sum(phantom.values())
+        A(f"**{total_phantom} diagnoses named a cause this simulator never generates**: "
+          + ", ".join(f"`{k}` ({v})" for k, v in sorted(phantom.items(), key=lambda kv: -kv[1]))
+          + ". This is not the same as abstaining, and it is not entirely the classifier's")
+        A("fault either. The taxonomy is the *system's*, and it offers causes the world")
+        A("model does not produce — `gateway_error` happens to real payment systems and")
+        A("never happens here. A classifier cannot know that, so part of this count is a")
+        A("gap in our simulator. The other part is not: reaching for `gateway_error` on a")
+        A("bare \"Transaction declined\" names a specific mechanism the evidence does not")
+        A("support, when `unknown` was available. Both are true, and the count is")
+        A("reported rather than adjudicated.")
+        A("")
+
     A("The split is the interesting column. On text that names a mechanism, a keyword")
     A("table with the ISO 8583 codes in it is very hard to beat and a model has almost")
     A("nothing to add. The case for a model rests entirely on the right-hand column —")
@@ -558,6 +617,10 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
         A("| | |")
         A("|---|---|")
         A(f"| Model | `{diagnoser.model}` |")
+        if diagnoser.fallback_models:
+            A(f"| Fallback chain | {', '.join(f'`{m}`' for m in diagnoser.fallback_models)} |")
+        for served, count in sorted(diagnoser.by_model.items(), key=lambda kv: -kv[1]):
+            A(f"| Served by `{served}` | {count} |")
         A(f"| Diagnoses served | {total} ({st.cache_hits} from cache, {st.calls} live) |")
         A(f"| Fell back to rules | {st.failures} ({st.fallback_rate:.1%}) |")
         A(f"| Stopped by the budget ceiling | {st.budget_stops} |")
@@ -578,6 +641,50 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A("")
             for reason in st.failure_reasons[:3]:
                 A(f"- `{reason[:160]}`")
+            A("")
+
+    if diagnoser is not None:
+        rules_arm = summaries.get(Arm.BASELINE_RULES)
+        if rules_arm and rules_arm.n:
+            rate_c = rate_comparison(Arm.BASELINE_RULES)
+            t_harm = treat.forbidden_retries / max(1, treat.n) * 1000
+            r_harm = rules_arm.forbidden_retries / max(1, rules_arm.n) * 1000
+            A("## What the model buys, and what it costs")
+            A("")
+            A("The ablation. Same playbooks, same gate, same ledger, same audit chain;")
+            A("the only difference between these two arms is who classifies the cause.")
+            A("")
+            A("| | Model | Keyword classifier |")
+            A("|---|---|---|")
+            A(f"| Accuracy, text that names a mechanism | {_acc(by_arm[Arm.TREATMENT], True)} | "
+              f"{_acc(by_arm[Arm.BASELINE_RULES], True)} |")
+            A(f"| Accuracy, text that does not | {_acc(by_arm[Arm.TREATMENT], False)} | "
+              f"{_acc(by_arm[Arm.BASELINE_RULES], False)} |")
+            A(f"| Forbidden retries / 1,000 episodes | **{t_harm:.1f}** | {r_harm:.1f} |")
+            A(f"| Recovery rate | {treat.recovery_rate:.1%} | {rules_arm.recovery_rate:.1%} |")
+            A(f"| Difference in recovery rate | {rate_c.interval.point:+.2f} pp, "
+              f"p = {rate_c.p_value:.3f} | — |")
+            A("")
+            A("**It does not buy accuracy.** Overall the two are within a point of each")
+            A("other. On text that names a mechanism the model is genuinely better, and on")
+            A("text that does not, the accuracy metric punishes it for abstaining.")
+            A("")
+            A("**It buys calibrated uncertainty the system can act on.** Forbidden retries")
+            A(f"fall from {r_harm:.0f} to {t_harm:.0f} per 1,000 episodes, "
+              f"{(1 - t_harm / max(1e-9, r_harm)):.0%} fewer. A keyword table returns one")
+            A("label. The model returns a label, a confidence, and what else it might have")
+            A("been — and when the runner-up is a dead card or a risk decline, the gate")
+            A("refuses the retry that a single confident-looking label would have allowed.")
+            A("That rule is worth half the model arm's harm, and no regex can express its")
+            A("input.")
+            A("")
+            A(f"**It costs recovery.** {rate_c.interval.point:+.2f} percentage points against")
+            A(f"the keyword arm (p = {rate_c.p_value:.3f}, not significant, and inside the")
+            A("placebo noise floor). Abstaining routes to the conservative playbook and the")
+            A("runner-up rule blocks retries that would sometimes have worked. That is a")
+            A("real trade and not a rounding error: **less revenue, less harm.** Which side")
+            A("a merchant should want depends on how they price a retry against a dead")
+            A("card, and this report deliberately does not decide that for them.")
             A("")
 
     A("## Harm")

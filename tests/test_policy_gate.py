@@ -311,3 +311,56 @@ def test_allows_record_what_was_checked(gate):
 def test_denials_never_carry_an_executable_action(gate):
     d = gate.evaluate(msg(), ctx(opted_out=True))
     assert d.action is None
+
+
+# ── uncertainty is information the gate can act on ───────────────────────────
+
+
+def test_a_hesitant_diagnosis_naming_a_dead_card_blocks_the_retry(gate):
+    """The clearest thing structured model output buys.
+
+    A keyword table returns one label. A calibrated model returns a label, a
+    confidence, and what else it might have been — and if the runner-up is
+    something we must never retry, then re-presenting the payment is exactly
+    the action we would refuse if we knew. The safe action under uncertainty is
+    the one that is safe for every cause still in play.
+
+    Measured cost of not having this rule: the model arm ran 66 forbidden
+    retries per 1,000 episodes against the keyword arm's 48, because honest
+    `unknown` answers routed to a playbook that retries.
+    """
+    decision = gate.evaluate(
+        ProposedAction(tool=Tool.RETRY_PAYMENT, rationale="test"),
+        ctx(root_cause=RootCause.UNKNOWN,
+            alternative_cause=RootCause.CARD_EXPIRED_OR_INVALID,
+            diagnosis_confidence=0.4),
+    )
+    assert decision.verdict is GateVerdict.DENY
+    assert "alternative_cause_never_retryable" in decision.reasons
+
+
+def test_a_confident_diagnosis_is_not_second_guessed(gate):
+    """The rule must not fire on every mention of a runner-up.
+
+    A model that is sure of a retryable cause has earned the retry, even if it
+    politely listed an alternative. Blocking there would punish the model for
+    volunteering information, which is the incentive this whole design is
+    trying to avoid creating.
+    """
+    decision = gate.evaluate(
+        ProposedAction(tool=Tool.RETRY_PAYMENT, rationale="test"),
+        ctx(root_cause=RootCause.INSUFFICIENT_FUNDS,
+            alternative_cause=RootCause.CARD_EXPIRED_OR_INVALID,
+            diagnosis_confidence=0.93),
+    )
+    assert decision.verdict is not GateVerdict.DENY
+
+
+def test_a_harmless_runner_up_does_not_block_anything(gate):
+    decision = gate.evaluate(
+        ProposedAction(tool=Tool.RETRY_PAYMENT, rationale="test"),
+        ctx(root_cause=RootCause.UNKNOWN,
+            alternative_cause=RootCause.ISSUER_DOWN,
+            diagnosis_confidence=0.3),
+    )
+    assert decision.verdict is not GateVerdict.DENY

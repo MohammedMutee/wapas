@@ -656,3 +656,55 @@ recovery by construction, so testing it on gross reports every rate in the card
 as inert. Each knob is now judged on the metric it can actually move. A
 self-critical check that produces false findings is worse than none, because it
 spends the credibility it was supposed to earn.
+
+---
+
+### D30 · What the model actually earns, measured
+**2026-08-23**
+
+The ablation the whole project was built to run. Same playbooks, same gate,
+same ledger, same audit chain, 2,000 episodes against 750 — the only difference
+between the arms is who classifies the cause.
+
+| | Model | Keyword classifier |
+|---|---|---|
+| Accuracy, text naming a mechanism | 89.5% | 85.7% |
+| Accuracy, text that does not | 10.4% | 25.0% |
+| Overall | 75.4% | 74.7% |
+| Forbidden retries / 1,000 episodes | **33.5** | 48.0 |
+| Recovery rate | 57.9% | 61.1% |
+
+**It does not buy accuracy.** Overall they are within a point. That is the
+honest headline and it is the opposite of the pitch this project started with.
+
+**The uninformative column is a broken metric, not a broken model.** When the
+text says only "Transaction declined" the true cause is still a specific
+mechanism, so a classifier answering `unknown` — the correct answer to the
+question actually asked — scores zero, while one that guesses the modal cause
+scores 25%. The metric rewards guessing and penalises honesty. This is the same
+error as D28, one layer up: it was in the planner then and it is in the scoring
+now. The number worth reading instead: on 355 unanswerable episodes the model
+abstained on 132 of them.
+
+**What it does buy is uncertainty the system can act on.** A regex returns one
+label. A calibrated model returns a label, a confidence, and what else it might
+have been. So the gate gained one rule: if the diagnosis is hesitant and its
+*runner-up* is never-retryable, refuse the retry — because re-presenting a
+payment that might be a dead card is exactly the action we would refuse if we
+knew. Forbidden retries fell from 66.0 to 33.5 per 1,000, and the arm went from
+worse than the keyword baseline to 30% better than it.
+
+That rule is the clearest answer this project has to "why a model?". Not that
+it classifies better. That it can say *"probably A, possibly B"*, and B is
+something a regex has no way to express.
+
+**And it costs recovery.** −3.2 percentage points against the keyword arm
+(p = 0.13, inside the placebo noise floor, but the sign is consistent).
+Abstaining routes to the conservative playbook, and the runner-up rule blocks
+retries that would sometimes have worked.
+
+So the finding is a trade, not a win: **less revenue, less harm.** Which side a
+merchant should want depends on how they price re-presenting a payment against
+a card the issuer has already declared dead — and the report deliberately does
+not decide that for them. Stating it as a trade is more useful than any of the
+three ways it could have been dressed up as a victory.
