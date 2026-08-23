@@ -1,0 +1,145 @@
+{
+  "seed": 20260901,
+  "episodes": 5000,
+  "llm": true,
+  "generated_from": "eval.run_batch",
+  "arms": {
+    "baseline_naive": {
+      "n": 750,
+      "recovery_rate": 0.6186666666666667,
+      "gross_per_episode": 138048.17066666667,
+      "net_after_ext_per_episode": 129637.34133333333,
+      "contacts_per_episode": 0.496,
+      "opt_out_rate": 0.02266666666666667,
+      "forbidden_retries_per_1000": 965.3333333333334,
+      "externalities_per_episode": 8409.837333333333
+    },
+    "treatment": {
+      "n": 2000,
+      "recovery_rate": 0.599,
+      "gross_per_episode": 118006.9535,
+      "net_after_ext_per_episode": 103769.7775,
+      "contacts_per_episode": 0.8445,
+      "opt_out_rate": 0.0515,
+      "forbidden_retries_per_1000": 0.0,
+      "externalities_per_episode": 14214.169
+    },
+    "baseline_blast": {
+      "n": 750,
+      "recovery_rate": 0.5533333333333333,
+      "gross_per_episode": 103701.87333333334,
+      "net_after_ext_per_episode": 83571.32666666666,
+      "contacts_per_episode": 0.9986666666666667,
+      "opt_out_rate": 0.06133333333333333,
+      "forbidden_retries_per_1000": 453.3333333333333,
+      "externalities_per_episode": 20095.593333333334
+    },
+    "control": {
+      "n": 750,
+      "recovery_rate": 0.14933333333333335,
+      "gross_per_episode": 26826.338666666667,
+      "net_after_ext_per_episode": 26826.338666666667,
+      "contacts_per_episode": 0.0,
+      "opt_out_rate": 0.0,
+      "forbidden_retries_per_1000": 0.0,
+      "externalities_per_episode": 0.0
+    },
+    "baseline_rules": {
+      "n": 750,
+      "recovery_rate": 0.6,
+      "gross_per_episode": 103205.76266666666,
+      "net_after_ext_per_episode": 73822.188,
+      "contacts_per_episode": 0.8866666666666667,
+      "opt_out_rate": 0.056,
+      "forbidden_retries_per_1000": 0.0,
+      "externalities_per_episode": 29360.109333333334
+    }
+  },
+  "diagnosis": {
+    "treatment": {
+      "seen wording": {
+        "n": 1297,
+        "correct": 1297,
+        "accuracy": 1.0
+      },
+      "new wording": {
+        "n": 348,
+        "correct": 333,
+        "accuracy": 0.9568965517241379
+      },
+      "no signal": {
+        "n": 355,
+        "correct": 177,
+        "accuracy": 0.49859154929577465
+      }
+    },
+    "baseline_rules": {
+      "seen wording": {
+        "n": 477,
+        "correct": 477,
+        "accuracy": 1.0
+      },
+      "new wording": {
+        "n": 137,
+        "correct": 90,
+        "accuracy": 0.656934306569343
+      },
+      "no signal": {
+        "n": 136,
+        "correct": 69,
+        "accuracy": 0.5073529411764706
+      }
+    }
+  },
+  "oracle": {
+    "overall": 0.9046,
+    "no_signal": 0.44534883720930235
+  },
+  "audit": {
+    "entries": 40065,
+    "intact": true
+  },
+  "model": {
+    "name": "nvidia/nemotron-3-super-120b-a12b",
+    "from_history": 1297,
+    "deterministic": 355,
+    "to_model": 348,
+    "fallbacks": 0
+  },
+  "head_to_head": {
+    "model": {
+      "seen wording": {
+        "n": 3225,
+        "correct": 3225,
+        "accuracy": 1.0
+      },
+      "new wording": {
+        "n": 915,
+        "correct": 862,
+        "accuracy": 0.9420765027322404
+      },
+      "no signal": {
+        "n": 860,
+        "correct": 436,
+        "accuracy": 0.5069767441860465
+      }
+    },
+    "rules": {
+      "seen wording": {
+        "n": 3225,
+        "correct": 3225,
+        "accuracy": 1.0
+      },
+      "new wording": {
+        "n": 915,
+        "correct": 620,
+        "accuracy": 0.6775956284153005
+      },
+      "no signal": {
+        "n": 860,
+        "correct": 436,
+        "accuracy": 0.5069767441860465
+      }
+    }
+  }
+}

@@ -94,6 +94,8 @@ make calibrate   # false-positive rate on known nulls → results/calibration.md
 make sweep       # ±30% on every parameter → results/sensitivity.md
 make redteam     # 33 adversarial scenarios; expect 0 escapes
 make demo        # one real episode end-to-end against Razorpay test mode
+make dashboard   # render the results into results/dashboard.html
+make secrets     # scan the tree and full git history for credentials
 ```
 
 ## What exists today
@@ -124,7 +126,7 @@ make demo        # one real episode end-to-end against Razorpay test mode
 | Sensitivity sweep (±30% on every parameter) | ✅ | [`results/sensitivity.md`](results/sensitivity.md) |
 | Adversarial suite | ✅ | [`results/redteam.md`](results/redteam.md), 33 scenarios |
 | CI regenerates the report and checks the README | ✅ | `.github/workflows/ci.yml` |
-| Dashboard | ⬜ | |
+| Dashboard | ✅ | `make dashboard` → one self-contained HTML file, no build step |
 
 ## Architecture in one line
 

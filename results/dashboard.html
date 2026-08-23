@@ -1,0 +1,178 @@
+<title>Wapas — recovery evidence</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:#fcfcfb; --surface-2:#f4f4f2; --line:#e2e2dd;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#78766f;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+    --good:#008300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:#1a1a19; --surface-2:#232322; --line:#35352f;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --surface-2:#232322; --line:#35352f;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  }
+  body { margin:0; background:var(--surface-1); }
+  .viz-root {
+    background:var(--surface-1); color:var(--text-primary);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    max-width:980px; margin:0 auto; padding:40px 24px 72px;
+  }
+  h1 { font-size:27px; margin:0 0 4px; letter-spacing:-.02em; }
+  h2 { font-size:17px; margin:44px 0 6px; letter-spacing:-.01em; }
+  .sub { color:var(--text-secondary); margin:0 0 8px; }
+  .note { color:var(--text-secondary); font-size:13.5px; margin:10px 0 0; }
+  .muted { color:var(--text-muted); font-weight:400; }
+  .hero { display:flex; flex-wrap:wrap; gap:14px; margin:22px 0 8px; }
+  .tile { flex:1 1 200px; background:var(--surface-2); border:1px solid var(--line);
+           border-radius:10px; padding:16px 18px; }
+  .tile .n { font-size:26px; font-weight:640; letter-spacing:-.02em; display:block; }
+  .tile .c { color:var(--text-secondary); font-size:12.5px; display:block; margin-top:3px; }
+  .ok { color:var(--good); }
+  .chart { margin-top:10px; overflow-x:auto; }
+  .row { display:flex; align-items:center; gap:10px; margin:5px 0; }
+  .rlabel { width:var(--label-w,150px); flex:none; color:var(--text-secondary);
+             font-size:13px; text-align:right; }
+  .rlabel.small { width:112px; }
+  .track { flex:none; width:420px; }
+  .bar { display:block; height:15px; border-radius:0 4px 4px 0; }
+  .rvalue { width:var(--value-w,108px); flex:none; font-variant-numeric:tabular-nums;
+             font-size:13px; color:var(--text-primary); }
+  .s1{background:var(--s1)} .s2{background:var(--s2)} .s3{background:var(--s3)}
+  .s4{background:var(--s4)} .s5{background:var(--s5)}
+  .bucket { margin:14px 0; }
+  .btitle { font-size:13.5px; color:var(--text-primary); margin-bottom:3px; font-weight:560; }
+  .stack { display:flex; height:26px; border-radius:6px; overflow:hidden; margin-top:12px;
+            gap:2px; background:var(--surface-1); }
+  .seg { display:block; height:100%; }
+  .legend { display:flex; flex-wrap:wrap; gap:18px; margin-top:10px; font-size:13px;
+             color:var(--text-secondary); }
+  .key { display:flex; align-items:center; gap:7px; }
+  .dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .pair { display:flex; gap:34px; margin:16px 0 4px; flex-wrap:wrap; }
+  .big { font-size:31px; font-weight:640; letter-spacing:-.02em; display:block; }
+  .muted-num { color:var(--text-secondary); }
+  .cap { font-size:12.5px; color:var(--text-secondary); }
+  table { border-collapse:collapse; width:100%; margin-top:12px; font-size:13.5px; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--text-secondary); font-weight:560; }
+  td.num { font-variant-numeric:tabular-nums; }
+  footer { margin-top:48px; padding-top:16px; border-top:1px solid var(--line);
+            color:var(--text-muted); font-size:12.5px; }
+</style>
+
+<div class="viz-root">
+<h1>Wapas — revenue that came back</h1>
+<p class="sub">Seed <code>20260901</code> · 5,000 episodes ·
+LLM agent ·
+generated 2026-08-23 19:29 UTC by <code>make dashboard</code></p>
+
+<div class="hero">
+  <div class="tile"><span class="n">₹15,39,328.91</span>
+    <span class="c">Net incremental recovery, after the cost of every opt-out</span></div>
+  <div class="tile"><span class="n">15%</span>
+    <span class="c">Recovered with no intervention at all — subtracted, not claimed</span></div>
+  <div class="tile"><span class="n ok">0</span>
+    <span class="c">Forbidden retries per 1,000 episodes
+      (fixed ladder: 965)</span></div>
+  <div class="tile"><span class="n ok">intact</span>
+    <span class="c">Audit chain, 40,065 entries verified</span></div>
+</div>
+
+<h2>Diagnosis is three problems, not one</h2>
+<p class="sub">Both classifiers over the same 5,000 episodes. A lookup over
+resolved history is <em>optimal</em> on text it has seen — the model earns its place on the
+column where the wording is new.</p>
+<div class="pair"><div><span class="big">90.5%</span><span class="cap">Wapas agent</span></div><div><span class="big muted-num">85.6%</span><span class="cap">Keyword rules</span></div><div><span class="big muted-num">90.5%</span><span class="cap">Single-episode ceiling</span></div></div>
+<div class="chart grouped">
+<div class="bucket"><div class="btitle">Wording seen before <span class="muted">n=3,225</span></div>
+<div class="row"><span class="rlabel small">Wapas agent</span><span class="track"><span class="bar s1" style="width:380.0px"></span></span><span class="rvalue">100.0%</span></div>
+<div class="row"><span class="rlabel small">Keyword rules</span><span class="track"><span class="bar s2" style="width:380.0px"></span></span><span class="rvalue">100.0%</span></div>
+</div>
+<div class="bucket"><div class="btitle">Wording never seen <span class="muted">n=915</span></div>
+<div class="row"><span class="rlabel small">Wapas agent</span><span class="track"><span class="bar s1" style="width:358.0px"></span></span><span class="rvalue">94.2%</span></div>
+<div class="row"><span class="rlabel small">Keyword rules</span><span class="track"><span class="bar s2" style="width:257.5px"></span></span><span class="rvalue">67.8%</span></div>
+</div>
+<div class="bucket"><div class="btitle">Text says nothing <span class="muted">n=860</span></div>
+<div class="row"><span class="rlabel small">Wapas agent</span><span class="track"><span class="bar s1" style="width:192.7px"></span></span><span class="rvalue">50.7%</span></div>
+<div class="row"><span class="rlabel small">Keyword rules</span><span class="track"><span class="bar s2" style="width:192.7px"></span></span><span class="rvalue">50.7%</span></div>
+</div>
+</div>
+
+<h2>Where each episode is answered</h2>
+<div class="stack"><span class="seg s3" style="width:64.85%" title="Answered from history: 1,297"></span><span class="seg s4" style="width:17.75%" title="Outage detector or base rates: 355"></span><span class="seg s1" style="width:17.40%" title="Sent to the model: 348"></span></div><div class="legend"><span class="key"><i class="dot s3"></i>Answered from history <b>1,297</b> <span class="muted">(65%)</span></span><span class="key"><i class="dot s4"></i>Outage detector or base rates <b>355</b> <span class="muted">(18%)</span></span><span class="key"><i class="dot s1"></i>Sent to the model <b>348</b> <span class="muted">(17%)</span></span></div><p class="note">The model is consulted on <b>17%</b> of episodes. A wording resolved before is answered by lookup; text that identifies nothing is answered by the outage detector or by base rates. Both are optimal on their own ground and both are free.</p>
+
+<h2>Recovery rate</h2>
+<div class="chart" style="--label-w:150px;--value-w:108px">
+<div class="row"><span class="rlabel">Wapas agent</span><span class="track"><span class="bar s1" style="width:251.6px"></span></span><span class="rvalue">59.9%</span></div>
+<div class="row"><span class="rlabel">Keyword rules</span><span class="track"><span class="bar s2" style="width:252.0px"></span></span><span class="rvalue">60.0%</span></div>
+<div class="row"><span class="rlabel">Fixed retry ladder</span><span class="track"><span class="bar s3" style="width:259.8px"></span></span><span class="rvalue">61.9%</span></div>
+<div class="row"><span class="rlabel">Contact everything</span><span class="track"><span class="bar s4" style="width:232.4px"></span></span><span class="rvalue">55.3%</span></div>
+<div class="row"><span class="rlabel">Untouched control</span><span class="track"><span class="bar s5" style="width:62.7px"></span></span><span class="rvalue">14.9%</span></div>
+</div>
+
+<h2>Gross recovered per episode</h2>
+<p class="sub">The fixed ladder leads here. The next two charts are why that is not the
+whole story.</p>
+<div class="chart" style="--label-w:150px;--value-w:108px">
+<div class="row"><span class="rlabel">Wapas agent</span><span class="track"><span class="bar s1" style="width:359.0px"></span></span><span class="rvalue">₹1,180.06</span></div>
+<div class="row"><span class="rlabel">Keyword rules</span><span class="track"><span class="bar s2" style="width:314.0px"></span></span><span class="rvalue">₹1,032.05</span></div>
+<div class="row"><span class="rlabel">Fixed retry ladder</span><span class="track"><span class="bar s3" style="width:420.0px"></span></span><span class="rvalue">₹1,380.48</span></div>
+<div class="row"><span class="rlabel">Contact everything</span><span class="track"><span class="bar s4" style="width:315.5px"></span></span><span class="rvalue">₹1,037.01</span></div>
+<div class="row"><span class="rlabel">Untouched control</span><span class="track"><span class="bar s5" style="width:81.6px"></span></span><span class="rvalue">₹268.26</span></div>
+</div>
+
+<h2>Forbidden retries per 1,000 episodes</h2>
+<p class="sub">Re-presenting a payment against a dead card, a risk decline or a revoked
+mandate. The ladder buys its recovery with behaviour a payments team could not defend
+to an acquirer.</p>
+<div class="chart" style="--label-w:150px;--value-w:70px">
+<div class="row"><span class="rlabel">Wapas agent</span><span class="track"><span class="bar s1" style="width:2.0px"></span></span><span class="rvalue">0</span></div>
+<div class="row"><span class="rlabel">Keyword rules</span><span class="track"><span class="bar s2" style="width:2.0px"></span></span><span class="rvalue">0</span></div>
+<div class="row"><span class="rlabel">Fixed retry ladder</span><span class="track"><span class="bar s3" style="width:420.0px"></span></span><span class="rvalue">965</span></div>
+<div class="row"><span class="rlabel">Contact everything</span><span class="track"><span class="bar s4" style="width:197.2px"></span></span><span class="rvalue">453</span></div>
+<div class="row"><span class="rlabel">Untouched control</span><span class="track"><span class="bar s5" style="width:2.0px"></span></span><span class="rvalue">0</span></div>
+</div>
+
+<h2>Contacts per episode</h2>
+<div class="chart" style="--label-w:150px;--value-w:70px">
+<div class="row"><span class="rlabel">Wapas agent</span><span class="track"><span class="bar s1" style="width:355.2px"></span></span><span class="rvalue">0.84</span></div>
+<div class="row"><span class="rlabel">Keyword rules</span><span class="track"><span class="bar s2" style="width:372.9px"></span></span><span class="rvalue">0.89</span></div>
+<div class="row"><span class="rlabel">Fixed retry ladder</span><span class="track"><span class="bar s3" style="width:208.6px"></span></span><span class="rvalue">0.50</span></div>
+<div class="row"><span class="rlabel">Contact everything</span><span class="track"><span class="bar s4" style="width:420.0px"></span></span><span class="rvalue">1.00</span></div>
+<div class="row"><span class="rlabel">Untouched control</span><span class="track"><span class="bar s5" style="width:2.0px"></span></span><span class="rvalue">0.00</span></div>
+</div>
+
+<h2>Net per episode, after the modelled cost of opt-outs</h2>
+<div class="chart" style="--label-w:150px;--value-w:108px">
+<div class="row"><span class="rlabel">Wapas agent</span><span class="track"><span class="bar s1" style="width:336.2px"></span></span><span class="rvalue">₹1,037.69</span></div>
+<div class="row"><span class="rlabel">Keyword rules</span><span class="track"><span class="bar s2" style="width:239.2px"></span></span><span class="rvalue">₹738.22</span></div>
+<div class="row"><span class="rlabel">Fixed retry ladder</span><span class="track"><span class="bar s3" style="width:420.0px"></span></span><span class="rvalue">₹1,296.37</span></div>
+<div class="row"><span class="rlabel">Contact everything</span><span class="track"><span class="bar s4" style="width:270.8px"></span></span><span class="rvalue">₹835.71</span></div>
+<div class="row"><span class="rlabel">Untouched control</span><span class="track"><span class="bar s5" style="width:86.9px"></span></span><span class="rvalue">₹268.26</span></div>
+</div>
+
+<h2>Every number above, as a table</h2>
+<table>
+  <tr><th>Arm</th><th>n</th><th>Recovery</th><th>Gross / ep</th>
+      <th>Net after ext. / ep</th><th>Contacts / ep</th><th>Opt-outs</th>
+      <th>Forbidden retries / 1,000</th></tr>
+  <tr><td>Wapas agent</td><td class='num'>2,000</td><td class='num'>59.9%</td><td class='num'>₹1,180.06</td><td class='num'>₹1,037.69</td><td class='num'>0.84</td><td class='num'>5.1%</td><td class='num'>0.0</td></tr><tr><td>Keyword rules</td><td class='num'>750</td><td class='num'>60.0%</td><td class='num'>₹1,032.05</td><td class='num'>₹738.22</td><td class='num'>0.89</td><td class='num'>5.6%</td><td class='num'>0.0</td></tr><tr><td>Fixed retry ladder</td><td class='num'>750</td><td class='num'>61.9%</td><td class='num'>₹1,380.48</td><td class='num'>₹1,296.37</td><td class='num'>0.50</td><td class='num'>2.3%</td><td class='num'>965.3</td></tr><tr><td>Contact everything</td><td class='num'>750</td><td class='num'>55.3%</td><td class='num'>₹1,037.01</td><td class='num'>₹835.71</td><td class='num'>1.00</td><td class='num'>6.1%</td><td class='num'>453.3</td></tr><tr><td>Untouched control</td><td class='num'>750</td><td class='num'>14.9%</td><td class='num'>₹268.26</td><td class='num'>₹268.26</td><td class='num'>0.00</td><td class='num'>0.0%</td><td class='num'>0.0</td></tr>
+</table>
+
+<footer>
+  In-simulation results from published generative parameters the agent never reads
+  (<code>sim/params.yaml</code>). Reproduce with <code>make eval-llm &amp;&amp; make dashboard</code>.
+  Full report, statistical calibration, sensitivity sweep and adversarial suite are in
+  <code>results/</code>.
+</footer>
+</div>

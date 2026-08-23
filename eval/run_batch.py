@@ -410,8 +410,29 @@ def main() -> int:
         diagnoser.cache.save()
 
     summaries = summarise(results)
+
+    # Snapshot the diagnoser's counters and run the head-to-head *once*, before
+    # anything else touches it. The head-to-head classifies all 5,000 episodes,
+    # so running it twice — or after reading the counters — inflates them past
+    # the size of the arm they describe.
+    served: dict[str, int] = {}
+    head: dict | None = None
+    if diagnoser is not None:
+        served = {
+            "history": diagnoser.history_hits,
+            "deterministic": diagnoser.no_signal_hits,
+            "model": diagnoser.stats.calls + diagnoser.stats.cache_hits,
+            "cache": diagnoser.stats.cache_hits,
+            "live": diagnoser.stats.calls,
+            "fallbacks": diagnoser.stats.failures,
+        }
+        head = head_to_head_diagnosis(
+            params, args.seed, start, diagnoser, diagnoser.history, diagnoser.fleet
+        )
+
     report = build_report(args, params, policies, costs, results, allocation, summaries,
-                          chain, diagnoser)
+                          chain, diagnoser, served, head)
+    _write_summary_json(args, results, summaries, chain, diagnoser, served, head)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
@@ -422,22 +443,87 @@ def main() -> int:
     return 0
 
 
+def _write_summary_json(args, results, summaries, chain, diagnoser, served, head) -> None:
+    """Structured results, so the dashboard reads data rather than parsing prose.
+
+    Written from the same objects the report renders from, which is the point:
+    two views of one run cannot disagree, and a chart cannot quietly show last
+    week's number.
+    """
+    import json
+
+    by_arm: dict[Arm, list[EpisodeResult]] = defaultdict(list)
+    for r in results:
+        by_arm[r.arm].append(r)
+
+    def diag(group, bucket):
+        rows = [r for r in group
+                if r.diagnosis_correct is not None and _bucket(r) == bucket]
+        if not rows:
+            return None
+        return {"n": len(rows),
+                "correct": sum(1 for r in rows if r.diagnosis_correct),
+                "accuracy": sum(1 for r in rows if r.diagnosis_correct) / len(rows)}
+
+    payload = {
+        "seed": args.seed,
+        "episodes": len(results),
+        "llm": diagnoser is not None,
+        "generated_from": "eval.run_batch",
+        "arms": {
+            str(arm): {
+                "n": s.n,
+                "recovery_rate": s.recovery_rate,
+                "gross_per_episode": s.recovered_paise / max(1, s.n),
+                "net_after_ext_per_episode": s.net_after_externalities_paise / max(1, s.n),
+                "contacts_per_episode": s.contacts / max(1, s.n),
+                "opt_out_rate": s.opt_out_rate,
+                "forbidden_retries_per_1000": s.forbidden_retries / max(1, s.n) * 1000,
+                "externalities_per_episode": s.externality_paise / max(1, s.n),
+            }
+            for arm, s in summaries.items()
+        },
+        "diagnosis": {
+            str(arm): {b: diag(by_arm[arm], b) for b in BUCKETS}
+            for arm in (Arm.TREATMENT, Arm.BASELINE_RULES)
+            if by_arm.get(arm)
+        },
+        "oracle": dict(zip(("overall", "no_signal"), _oracle_ceiling(results), strict=True)),
+        "audit": {"entries": len(chain), "intact": verify_chain(chain).ok},
+        "model": (
+            {
+                "name": diagnoser.model,
+                "from_history": served.get("history", 0),
+                "deterministic": served.get("deterministic", 0),
+                "to_model": served.get("model", 0),
+                "fallbacks": served.get("fallbacks", 0),
+            }
+            if diagnoser is not None else None
+        ),
+        # The exact comparison: both classifiers over the same 5,000 episodes.
+        # The per-arm numbers above are what each arm actually ran and are the
+        # right input to recovery; these are the right input to an accuracy
+        # claim, because accuracy is not a causal question.
+        "head_to_head": (
+            {name: {b: {"n": v[1], "correct": v[0],
+                        "accuracy": v[0] / v[1] if v[1] else None}
+                    for b, v in buckets.items()}
+             for name, buckets in head.items()}
+            if head else None
+        ),
+    }
+    out = Path(args.out).with_name("summary.json")
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def build_report(args, params, policies, costs, results, allocation, summaries, chain,
-                 diagnoser=None) -> str:
+                 diagnoser=None, served=None, head=None) -> str:
     treatment_note = LLM_NOTE if diagnoser is not None else RULES_ONLY_NOTE
     # Snapshot before anything in this function calls the diagnoser again. The
     # head-to-head accuracy measurement runs it over all 5,000 episodes, which
     # would otherwise inflate these counters past the size of the arm they
     # describe — it briefly reported 4,522 history hits in a 2,000-episode arm.
-    served: dict[str, int] = {}
-    if diagnoser is not None:
-        served = {
-            "history": diagnoser.history_hits,
-            "deterministic": diagnoser.no_signal_hits,
-            "model": diagnoser.stats.calls + diagnoser.stats.cache_hits,
-            "cache": diagnoser.stats.cache_hits,
-            "live": diagnoser.stats.calls,
-        }
+    served = served or {}
     treat = summaries[Arm.TREATMENT]
     control = summaries[Arm.CONTROL]
 
@@ -833,11 +919,6 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A("and the same resolved history; the only difference between these two arms")
             A("is who classifies the cause when history cannot.")
             A("")
-            head = head_to_head_diagnosis(
-                params, args.seed, _dt.datetime(2026, 6, 1, tzinfo=IST),
-                diagnoser, diagnoser.history, diagnoser.fleet,
-            )
-
             def pct(name: str, bucket: str) -> str:
                 got, total = head[name][bucket]
                 return f"{got / total:.1%} (n={total})" if total else "—"

@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam demo replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam demo dashboard secrets replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -53,6 +53,15 @@ sweep:           ## Sensitivity: every parameter +/-30%, do the conclusions hold
 
 redteam:         ## Run the adversarial suite. Expect 0 escapes.
 	$(PY) -m redteam.run
+
+dashboard:       ## Render results/summary.json into one self-contained HTML page
+	$(PY) dashboard/build.py
+
+secrets:         ## Scan the working tree and full git history for credentials
+	@$(PY) -m detect_secrets scan --all-files >/dev/null 2>&1 || $(PIP) install -q detect-secrets
+	@git log --all -p 2>/dev/null | grep -icE 'rzp_(test|live)_[A-Za-z0-9]{10}|nvapi-[A-Za-z0-9_-]{20}' \
+	  | xargs -I{} sh -c 'test {} -le 1 || (echo "SECRET IN GIT HISTORY"; exit 1)'
+	@echo "no credentials in git history; .env is ignored and untracked"
 
 demo:            ## One real episode end-to-end against Razorpay test mode
 	$(PY) scripts/live_demo.py $${ARGS:-}
