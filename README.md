@@ -124,6 +124,7 @@ make secrets     # scan the tree and full git history for credentials
 | Webhook signature verification | ✅ | verified before parsing, constant-time compare |
 | Idempotency + crash reconciliation | ✅ | a retried intent never creates a second link |
 | Sensitivity sweep (±30% on every parameter) | ✅ | [`results/sensitivity.md`](results/sensitivity.md) |
+| Recoverability scorer + EV triage | ✅ | built, measured, **ships disabled** — [`results/triage.md`](results/triage.md) |
 | Adversarial suite | ✅ | [`results/redteam.md`](results/redteam.md), 33 scenarios |
 | CI regenerates the report and checks the README | ✅ | `.github/workflows/ci.yml` |
 | Dashboard | ✅ | `make dashboard` → one self-contained HTML file, no build step |

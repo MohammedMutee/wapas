@@ -46,6 +46,7 @@ from ..money import ZERO, Paise
 from ..policy import PolicyBundle, PolicyGate
 from ..policy.gate import ContactRecord, GateContext
 from ..strategies.base import Strategy, StrategyContext
+from ..triage import triage
 
 MAX_STEPS = 24
 """Absolute loop bound, independent of policy. A runaway agent is a bug, and a
@@ -205,6 +206,10 @@ class EpisodeResult:
     """
     self_recovered: bool = False
     """True when the payment arrived without any attributable action."""
+    skipped_by_triage: bool = False
+    """True when the episode was judged not worth working before any action."""
+    triage_probability: float | None = None
+    triage_ev_paise: int | None = None
     true_cause: RootCause | None = None
     diagnosed_cause: RootCause | None = None
     signal_informative: bool = True
@@ -250,7 +255,13 @@ class EpisodeRunner:
         response: ResponseModel,
         run_seed: int,
         chain: HashChain | None = None,
+        scorer=None,
     ) -> None:
+        self.scorer = scorer
+        """Optional recoverability model. When present, every episode faces a
+        triage decision before its first action: is this worth working at all?
+        Without one the engine works everything, which is what it did until
+        ``triage.ev_floor_paise`` was found declared and never read."""
         self.gate = PolicyGate(policies)
         self.policies = policies
         self.costs = costs
@@ -297,6 +308,37 @@ class EpisodeRunner:
                      "surface": str(ep.surface)})
 
         diagnosis = self._diagnose(strategy, ep, now, result)
+
+        if self.scorer is not None:
+            verdict = triage(
+                cause=(diagnosis.root_cause if diagnosis else RootCause.UNKNOWN),
+                surface=ep.surface, amount=ep.amount_paise,
+                is_business=getattr(ep.counterparty, "is_business", False),
+                scorer=self.scorer, costs=self.costs,
+                ev_floor_paise=self.policies.money.triage.ev_floor_paise,
+                planned_contacts=_planned_contacts(diagnosis, ep.surface),
+            )
+            result.triage_probability = verdict.probability
+            result.triage_ev_paise = verdict.expected_value_paise
+            self._audit(now, "agent", "triage", ep.ref, {
+                "work": verdict.work, "p_recover": round(verdict.probability, 4),
+                "ev_paise": verdict.expected_value_paise, "reason": verdict.reason,
+            })
+            if not verdict.work:
+                result.state = EpisodeState.SKIPPED_NEGATIVE_EV
+                result.terminal_reason = verdict.reason
+                result.skipped_by_triage = True
+                # Skipped is not abandoned. The counterparty may still pay, and
+                # that payment belongs to this arm exactly as it would have if
+                # we had chased it.
+                self._check_self_recovery(ep, watch_until, result)
+                self._audit(now, "system", "episode_closed", ep.ref, {
+                    "state": str(result.state),
+                    "recovered_paise": result.recovered_paise,
+                    "cost_paise": result.cost_paise, "reason": result.terminal_reason,
+                })
+                result.audit_entries = len(self.chain) if self.chain else 0
+                return result
         contact_history: list[ContactRecord] = []
         consent = self._consent(ep)
         last_retry_at: _dt.datetime | None = None
@@ -642,6 +684,22 @@ class EpisodeRunner:
         if self.chain is None:
             return
         self.chain.append(at=at, actor=actor, event_type=event, payload={"ref": ref, **payload})
+
+
+def _planned_contacts(diagnosis, surface) -> int:
+    """How many contacts this episode would actually receive.
+
+    Taken from the playbook the diagnosis selects, so triage judges an episode
+    against the plan it would get rather than against an average one — a cause
+    whose playbook sends one email is not carrying the opt-out risk of one that
+    escalates four times.
+    """
+    from ..domain import CONTACT_ACTIONS, RootCause
+    from ..plan import playbook_for
+
+    cause = diagnosis.root_cause if diagnosis else RootCause.UNKNOWN
+    return sum(1 for step in playbook_for(cause, surface).steps
+               if step.tool in CONTACT_ACTIONS)
 
 
 def _channel_of(action: ProposedAction) -> Channel:

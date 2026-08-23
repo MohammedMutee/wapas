@@ -908,3 +908,60 @@ fixed by the cause distribution, so spreading them across more bursts makes
 each one thinner and harder to see. Fewer, larger outages are easier to detect
 than many small ones — which is true in production too, and is the argument for
 alerting on concentration rather than volume.
+
+---
+
+### D35 · A feature built, measured, and shipped switched off
+**2026-08-24**
+
+`triage.ev_floor_paise` had sat in `policies/money.yaml` since the first week,
+validated on load and read by nothing — the third dead parameter this project
+has found in its own configuration, after `bursts_per_90_days` and
+`affected_issuer_share`. The build plan called for an expected-value triage
+step. Building it was easy; deciding whether to ship it took a measurement, and
+the measurement said no.
+
+**The probability model is not what the plan specified.** The plan said
+LightGBM with isotonic calibration. Once the feature set was known that was the
+wrong tool: everything observable before the first action is a handful of
+low-cardinality categoricals — cause, surface, amount band — over a few
+thousand resolved episodes. A smoothed conditional rate on that data is
+*calibrated by construction*, because it is the observed frequency rather than
+a score mapped onto one. Measured on held-out episodes the scorer never saw,
+expected calibration error is **0.021**. A boosted tree would have been a
+heavier way to reproduce a lookup table, and would then have needed the
+isotonic step to fix a problem it introduced.
+
+**Revenue alone cannot make the decision bite.** A 20% chance on a ₹1,000
+invoice is ₹200 against a few paise of SMS, so an EV floor on revenue skips
+nothing — which is exactly why the setting could sit unread without anyone
+noticing. The calculation only becomes real with the externality on the same
+side of the ledger:
+
+    EV = P(recover) x amount - channel spend - P(opt out) x cost of losing them
+
+**And it still does not pay.** Swept across every floor from ₹0 to ₹3,000, net
+per episode falls monotonically. At the configured floor the agent skips 11.5%
+of episodes, saves a little harm, and gives up more revenue than it saves: net
+−2.0%. There is no setting at which this wins. In this world recovery
+probability is high and the opt-out hazard is low, so expected recovery
+dominates expected harm nearly everywhere.
+
+So it ships **disabled**. `make eval` does not use it and no headline number
+depends on it.
+
+**The condition is the useful part.** A negative result with no boundary is
+just a shrug, so the study also varies what an opt-out costs — the most
+contestable number in the project. Around **3x** the assumed cost, triage
+crosses over and starts winning; at 8x it is the difference between an
+operation that makes money and one that does not.
+
+That turns the obvious objection into an answer. A reader who thinks the
+externality pricing is too *low* is not undermining the system; they are
+describing the conditions under which one of its switches should be on — and
+the switch exists, is calibrated, has a measured cost, and is one line of
+policy away.
+
+Keeping a built feature switched off, with the evidence for why and the
+condition that would change it, is a better outcome than shipping it because it
+was on the plan.

@@ -70,6 +70,24 @@ LLM_NOTE = (
 
 
 HISTORY_SEED = 770777
+
+
+def train_scorer(params, policies, costs, *, history_seed: int = HISTORY_SEED):
+    """Learn P(recover) from episodes the merchant already worked.
+
+    The history population run through the same engine with the same planner,
+    so the outcomes are what this system actually achieves rather than what the
+    simulator would have done unaided. Never sees an evaluation episode.
+    """
+    from wapas.triage import RecoverabilityScorer
+
+    start = _dt.datetime(2026, 6, 1, tzinfo=IST) - _dt.timedelta(days=180)
+    population = build_population(params, run_seed=history_seed, start=start,
+                                  established_signals_only=True)
+    runner = EpisodeRunner(policies=policies, costs=costs,
+                           response=ResponseModel(params), run_seed=history_seed)
+    worked = [runner.run(ep, Arm.TREATMENT, RulesOnly()) for ep in population.episodes]
+    return RecoverabilityScorer.from_results(worked), worked
 """The merchant's resolved past.
 
 A different seed from any evaluation run, so history and evaluation never share

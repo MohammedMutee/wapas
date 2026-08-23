@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam demo dashboard secrets replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep triage redteam demo dashboard secrets replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -50,6 +50,9 @@ calibrate:       ## Measure the false-positive rate of the evaluation on known n
 
 sweep:           ## Sensitivity: every parameter +/-30%, do the conclusions hold?
 	$(PY) -m eval.sensitivity --factor $${FACTOR:-0.30}
+
+triage:          ## Is it ever right to refuse to chase a payment? (ships off; see results/triage.md)
+	$(PY) -m eval.triage_study
 
 redteam:         ## Run the adversarial suite. Expect 0 escapes.
 	$(PY) -m redteam.run
