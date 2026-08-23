@@ -58,11 +58,11 @@ test:            ## Run unit + property tests
 	$(VENV)/bin/pytest
 
 lint:            ## Lint
-	$(VENV)/bin/ruff check src tests eval sim scripts
+	$(VENV)/bin/ruff check src tests eval sim scripts redteam
 
 fmt:             ## Format
-	$(VENV)/bin/ruff format src tests eval sim scripts
-	$(VENV)/bin/ruff check --fix src tests eval sim scripts
+	$(VENV)/bin/ruff format src tests eval sim scripts redteam
+	$(VENV)/bin/ruff check --fix src tests eval sim scripts redteam
 
 typecheck:       ## Strict typing on the modules where bugs are credibility bugs
 	$(VENV)/bin/mypy
