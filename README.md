@@ -93,6 +93,7 @@ make eval-llm    # same, with the LLM agent as the treatment arm
 make calibrate   # false-positive rate on known nulls → results/calibration.md
 make sweep       # ±30% on every parameter → results/sensitivity.md
 make redteam     # 33 adversarial scenarios; expect 0 escapes
+make demo        # one real episode end-to-end against Razorpay test mode
 ```
 
 ## What exists today
@@ -117,7 +118,9 @@ make redteam     # 33 adversarial scenarios; expect 0 escapes
 | Externality pricing (opt-out, complaint, dispute) | ✅ | `config/rates.yaml`, reported separately |
 | LLM diagnosis (structured output, cached, priced) | ✅ | `src/wapas/diagnose/`, NVIDIA NIM |
 | Calibration validator on model output | ✅ | a generic failure signal cannot support a confident answer |
-| Actuators against real Razorpay APIs | ⬜ | next |
+| Actuators against real Razorpay APIs | ✅ | test mode; `scripts/live_demo.py` creates a real payment link |
+| Webhook signature verification | ✅ | verified before parsing, constant-time compare |
+| Idempotency + crash reconciliation | ✅ | a retried intent never creates a second link |
 | Sensitivity sweep (±30% on every parameter) | ✅ | [`results/sensitivity.md`](results/sensitivity.md) |
 | Adversarial suite | ✅ | [`results/redteam.md`](results/redteam.md), 33 scenarios |
 | CI regenerates the report and checks the README | ✅ | `.github/workflows/ci.yml` |

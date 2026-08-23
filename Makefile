@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam demo replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -53,6 +53,9 @@ sweep:           ## Sensitivity: every parameter +/-30%, do the conclusions hold
 
 redteam:         ## Run the adversarial suite. Expect 0 escapes.
 	$(PY) -m redteam.run
+
+demo:            ## One real episode end-to-end against Razorpay test mode
+	$(PY) scripts/live_demo.py $${ARGS:-}
 
 replay:          ## Re-derive an episode from the audit chain: make replay EP=<uuid>
 	$(PY) -m wapas.cli replay $(EP)

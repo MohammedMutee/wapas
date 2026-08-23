@@ -75,27 +75,18 @@ change gross recovery by construction, and testing it on gross would report
 every price in the rate card as inert. The first version of this section did
 exactly that.
 
-`issuer outage frequency` is the interesting one. `sim/signals.py` and the
-parameter file both argue at length that outages must be modelled as
-**correlated bursts** rather than independent draws, because i.i.d. downtime
-would let a fixed retry ladder do nearly as well as a cause-aware one and
-make timing intelligence look worthless. That argument is correct. It is also,
-on this evidence, currently doing no work: moving the burst count from 14 to
-10 or 18 leaves every headline figure identical.
+### The outage parameters are live now
 
-The reason is that nothing in the system consumes the correlation. Every
-episode is diagnosed and planned in isolation, so what reaches the response
-model is only *this* payment's distance from *its* outage ending — a marginal
-quantity that the burst count does not change. The clustering is real in the
-data and invisible to the agent.
+`bursts_per_90_days` and `affected_issuer_share` both moved nothing until
+2026-08-24, and D29 said so: the simulator argued for correlated outages while
+nothing in the system consumed the correlation. Every episode was planned in
+isolation, so the clustering was real in the data and invisible to the agent.
 
-What would make it matter is an agent that reads across episodes: a spike of
-`issuer_down` failures on one bank is observable, and the right response is to
-hold every retry against that issuer until it recovers, not to rediscover the
-outage one episode at a time. That is a real capability and a real product
-feature, and it is not built. Until it is, the bursty outage model should be
-described as a property of the simulator rather than as something the results
-depend on.
+Both move the results now, because `FleetView` reads across episodes: forty
+failures on one bank inside an hour is an outage, and that is evidence about a
+payment which the payment's own error text does not contain. A parameter that
+does nothing is a claim the code has not implemented, and the only way to find
+out is to sweep it.
 
 ## The most contestable parameter
 
