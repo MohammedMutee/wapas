@@ -84,6 +84,14 @@ class SeededEpisode:
     would_self_recover: bool
     self_recovery_at: _dt.datetime | None
     seed: int
+    signal_established: bool = True
+    """Whether this wording predates the evaluation window.
+
+    False marks text no resolved history can contain — a new acquirer, a bank
+    changing its phrasing. Ground truth about the *task*, never visible to a
+    strategy, and the axis the report splits accuracy on: a lookup table is
+    optimal on established wordings and helpless on new ones.
+    """
     signal_informative: bool = True
     """Whether the error text can identify the cause at all.
 
@@ -238,8 +246,21 @@ def _outages(rng: Rng, p: SimParams, start: _dt.datetime) -> list[tuple[_dt.date
     return sorted(out)
 
 
-def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -> Population:
-    """Generate the whole world from a single seed."""
+def build_population(
+    params: SimParams,
+    *,
+    run_seed: int,
+    start: _dt.datetime,
+    established_signals_only: bool = False,
+) -> Population:
+    """Generate the whole world from a single seed.
+
+    ``established_signals_only`` builds a *resolved history* population: the
+    same world, but restricted to error wordings the merchant has seen before.
+    The evaluation population is built without it, so roughly a quarter of its
+    informative episodes carry text no history contains. See ``sim/signals.py``
+    for why that distinction is the whole experiment.
+    """
     root = Rng(run_seed, "population")
     pop = Population(params=params, run_seed=run_seed, outages=_outages(root.child("outages"), params, start))
 
@@ -266,7 +287,8 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             down_until = end
 
         signal = draw_signal(r.child("signal"), cause,
-                             uninformative_share=params.signal_noise.uninformative_share)
+                             uninformative_share=params.signal_noise.uninformative_share,
+                             established_only=established_signals_only)
         code, desc, source, step = (signal.code, signal.description,
                                     signal.source, signal.step)
         sr = r.child("selfrec")
@@ -279,6 +301,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             rail=_rail_for(r.child("rail"), params, cause), occurred_at=occurred,
             error_code=code, error_description=desc, error_source=source, error_step=step,
             issuer_down_until=down_until, signal_informative=signal.informative,
+            signal_established=signal.established,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(hours=sr.uniform(2, 120)) if self_recovers else None
@@ -294,7 +317,8 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
         cause = (RootCause.MANDATE_REVOKED if r.child("cause").chance(0.3)
                  else RootCause.MANDATE_INSUFFICIENT)
         signal = draw_signal(r.child("signal"), cause,
-                             uninformative_share=params.signal_noise.uninformative_share)
+                             uninformative_share=params.signal_noise.uninformative_share,
+                             established_only=established_signals_only)
         code, desc, source, step = (signal.code, signal.description,
                                     signal.source, signal.step)
         occurred = start + _dt.timedelta(minutes=r.child("when").uniform(0, horizon_min))
@@ -309,6 +333,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             occurred_at=occurred, error_code=code, error_description=desc,
             error_source=source, error_step=step, issuer_down_until=None,
             signal_informative=signal.informative,
+            signal_established=signal.established,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(days=sr.uniform(1, 20)) if self_recovers else None
@@ -323,7 +348,8 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
         pop.buyers.append(buyer)
         cause = B2B_PERSONA_CAUSE[buyer.persona]
         signal = draw_signal(r.child("signal"), cause,
-                             uninformative_share=params.signal_noise.uninformative_share)
+                             uninformative_share=params.signal_noise.uninformative_share,
+                             established_only=established_signals_only)
         code, desc, source, step = (signal.code, signal.description,
                                     signal.source, signal.step)
         occurred = start + _dt.timedelta(minutes=r.child("when").uniform(0, horizon_min))
@@ -335,6 +361,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             true_cause=cause, rail="bank_transfer", occurred_at=occurred,
             error_code=code, error_description=desc, error_source=source, error_step=step,
             issuer_down_until=None, signal_informative=signal.informative,
+            signal_established=signal.established,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(days=sr.uniform(2, 45)) if self_recovers else None

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from ..domain import Diagnosis
+from ..domain import DISPOSITIONS, UNRECOVERABLE, Diagnosis
 from ..llm.base import LLMProvider, StructuredMode, prompt_digest
 from ..llm.costs import CostBook, cost_paise, cost_usd
 from ..llm.structured import ask_structured
@@ -71,9 +71,42 @@ class LLMDiagnoser:
         budget_usd: float = 15.0,
         max_tokens: int = 1400,
         fallback_models: tuple[str, ...] = (),
+        history=None,
+        neighbour_threshold: float = 0.60,
     ) -> None:
         self.provider = provider
         self.model = model
+        self.history = history
+        """The merchant's resolved past. Used three ways, in this order.
+
+        A wording resolved consistently before is answered **without calling
+        the model at all** — for a fixed vocabulary a lookup is optimal, it is
+        free, and second-guessing it with a language model would be slower,
+        costlier and worse. That short-circuit also means the model is only
+        asked about episodes history cannot already answer, which is exactly
+        where its value has to be demonstrated.
+
+        For the rest, base rates and near-duplicate wordings go into the
+        prompt as evidence.
+        """
+        self.neighbour_threshold = neighbour_threshold
+        """Retrieved exemplars below this similarity are withheld.
+
+        Set high enough that only near-duplicate wordings qualify — a changed
+        preposition, different casing — which is a real thing acquirers do and
+        which ``exact`` would miss.
+
+        It is deliberately not doing few-shot retrieval, because that was tried
+        and measured. Character-overlap retrieval at low similarity is not
+        merely useless on unseen wordings but *misleading*: "Recurring debit
+        bounced at destination bank" retrieves `mandate_revoked` at 0.27,
+        confidently wrong. Semantic retrieval with `nv-embedqa-e5-v5` does
+        better — 8 of 13 novel wordings matched to the right cause — but the
+        model answers 12 of 13 of those correctly from the text alone, so
+        retrieval would have been a second network dependency, a second index
+        to keep warm, and a source of confident wrong exemplars, in exchange
+        for nothing. See DECISIONS.md D32.
+        """
         self.fallback_models = fallback_models
         """Models to try, in order, when the primary will not answer.
 
@@ -89,7 +122,8 @@ class LLMDiagnoser:
         self.max_tokens = max_tokens
         self.stats = DiagnoserStats()
         self.by_model: dict[str, int] = {}
-        self.rules = RulesOnly()
+        self.history_hits = 0
+        self.rules = RulesOnly(history=history)
         self._last_cost: Paise = ZERO
 
     # ── the call ─────────────────────────────────────────────────────────────
@@ -101,17 +135,45 @@ class LLMDiagnoser:
         without reimplementing how they are built — a warmer that computed a
         different digest would fill a cache nothing ever reads.
         """
+        prior = neighbours = None
+        if self.history is not None:
+            prior = self.history.prior(
+                surface=ctx.surface, rail=ctx.rail, step=ctx.error_step,
+                source=ctx.error_source, code=ctx.error_code,
+            )
+            neighbours = [
+                pair for pair in self.history.neighbours(
+                    ctx.error_description, k=3, surface=ctx.surface
+                )
+                if pair[1] >= self.neighbour_threshold
+            ] or None
         user = build_user_prompt(
             surface=ctx.surface, rail=ctx.rail, error_code=ctx.error_code,
             error_description=ctx.error_description, error_source=ctx.error_source,
             error_step=ctx.error_step, amount_paise=ctx.amount_paise,
-            is_business=ctx.is_business,
+            is_business=ctx.is_business, prior=prior, neighbours=neighbours,
         )
         mode = self.provider.profile(self.model).best_mode()
         return user, prompt_digest(SYSTEM, user, self.model, mode)
 
     def diagnose(self, ctx: StrategyContext) -> Diagnosis:
         self._last_cost = ZERO
+
+        # History first. A wording resolved consistently before is known, and
+        # asking a model to reconsider it would be slower, costlier and worse.
+        if self.history is not None:
+            known = self.history.exact(ctx.error_description)
+            if known is not None:
+                cause, purity = known
+                self.history_hits += 1
+                return Diagnosis(
+                    root_cause=cause, confidence=min(0.97, purity),
+                    evidence=[f"this exact wording resolved to {cause} in history"],
+                    recoverable=cause not in UNRECOVERABLE,
+                    recommended_horizon_hours=DISPOSITIONS[cause].default_horizon_hours or 24,
+                    notes="resolved-history lookup; no model call needed",
+                )
+
         user, digest = self.prompt_for(ctx)
 
         cached = self.cache.get(digest) if self.cache is not None else None

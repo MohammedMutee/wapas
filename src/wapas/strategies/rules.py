@@ -127,12 +127,32 @@ _UNRECOVERABLE = {
 
 
 class RulesOnly:
-    """Classification into the taxonomy, then the matching playbook."""
+    """Classification into the taxonomy, then the matching playbook.
+
+    Given a :class:`~wapas.diagnose.history.ResolvedHistory` it uses it, and it
+    should: for a fixed vocabulary of error strings a lookup over resolved
+    outcomes is *optimal*, and a baseline denied that would be a strawman. The
+    same history is available to the agent, so the comparison stays an ablation
+    of the model rather than of who was allowed to remember things.
+    """
 
     name = "rules_only"
 
+    def __init__(self, history=None) -> None:
+        self.history = history
+
     def diagnose(self, ctx: StrategyContext) -> Diagnosis:
         text = f"{ctx.error_description} {ctx.error_code}".lower()
+
+        if self.history is not None:
+            known = self.history.exact(ctx.error_description)
+            if known is not None:
+                cause, purity = known
+                return self._diagnosis(
+                    cause, min(0.97, purity),
+                    [f"this exact wording resolved to {cause} in history"],
+                    "resolved-history lookup",
+                )
 
         coded = _iso_code(text)
         if coded is not None:
@@ -149,15 +169,33 @@ class RulesOnly:
                     "keyword classifier",
                 )
 
+        if self.history is not None:
+            distribution, level = self.history.prior(
+                surface=ctx.surface, rail=ctx.rail, step=ctx.error_step,
+                source=ctx.error_source, code=ctx.error_code,
+            )
+            if distribution:
+                cause, share = distribution[0]
+                runner_up = distribution[1][0] if len(distribution) > 1 else None
+                return self._diagnosis(
+                    cause, min(0.6, share),
+                    [f"no usable text; most common cause at this {level} is "
+                     f"{cause} ({share:.0%} of history)"],
+                    f"history prior [{level}]",
+                    alternative=runner_up,
+                )
+
         cause, confidence, why = _from_context(ctx)
         return self._diagnosis(cause, confidence, [why], "context fallback, no text match")
 
     def _diagnosis(
-        self, cause: RootCause, confidence: float, evidence: list[str], notes: str
+        self, cause: RootCause, confidence: float, evidence: list[str], notes: str,
+        alternative: RootCause | None = None,
     ) -> Diagnosis:
         return Diagnosis(
             root_cause=cause,
             confidence=confidence,
+            alternative_cause=alternative,
             evidence=evidence,
             recoverable=cause not in _UNRECOVERABLE,
             recommended_horizon_hours=72,

@@ -129,6 +129,7 @@ def test_no_strategy_can_see_whether_the_question_is_answerable():
 
     fields = {f.name for f in dataclasses.fields(StrategyContext)}
     assert "signal_informative" not in fields
+    assert "signal_established" not in fields
     assert "true_cause" not in fields
     assert "would_self_recover" not in fields
 

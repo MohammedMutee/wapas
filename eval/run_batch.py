@@ -69,14 +69,37 @@ LLM_NOTE = (
 )
 
 
-def build_strategies(*, use_llm: bool, seed: int):
+HISTORY_SEED = 770777
+"""The merchant's resolved past.
+
+A different seed from any evaluation run, so history and evaluation never share
+an episode, and restricted to wordings that predate the evaluation window."""
+
+
+def build_strategies(*, use_llm: bool, seed: int, params=None):
     """Strategy factories per arm, plus the diagnoser if one is in play.
 
     The diagnoser is created **once** and shared across episodes so its cache,
     its spend and its budget ceiling are per-run rather than per-episode. A
     per-episode budget would be no budget at all.
     """
-    factories = dict(STRATEGIES)
+    from wapas.diagnose.history import build_history
+
+    history = None
+    if params is not None:
+        history = build_history(
+            params, seed=HISTORY_SEED, start=_dt.datetime(2026, 6, 1, tzinfo=IST)
+        )
+        # Both diagnosing arms get it. A baseline denied the merchant's own
+        # resolved history would be a strawman: for a fixed vocabulary of error
+        # strings a lookup over past outcomes is *optimal*, and the comparison
+        # has to be an ablation of the model rather than of who was allowed to
+        # remember things.
+        factories = dict(STRATEGIES)
+        factories[Arm.BASELINE_RULES] = lambda: RulesOnly(history=history)
+        factories[Arm.TREATMENT] = lambda: RulesOnly(history=history)
+    else:
+        factories = dict(STRATEGIES)
     if not use_llm:
         return factories, None
 
@@ -109,6 +132,7 @@ def build_strategies(*, use_llm: bool, seed: int):
         cache=DiagnosisCache(),
         budget_usd=cfg.llm_budget_usd,
         fallback_models=("openai/gpt-oss-120b",),
+        history=history,
     )
     factories[Arm.TREATMENT] = lambda: LLMAgent(diagnoser)
     return factories, diagnoser
@@ -228,12 +252,58 @@ def _values(results: list[EpisodeResult], field_name: str) -> list[float]:
     return [float(getattr(r, field_name)) for r in results]
 
 
-def _acc(results: list[EpisodeResult], informative: bool) -> str:
+def _bucket(r: EpisodeResult) -> str:
+    """Which of the three questions this episode poses.
+
+    The split that matters. A lookup over resolved history is *optimal* on
+    wordings it has seen, helpless on wordings it has not, and irrelevant when
+    the text says nothing at all — so an overall accuracy figure is three
+    different problems averaged into one number that describes none of them.
+    """
+    if not r.signal_informative:
+        return "no signal"
+    return "seen wording" if r.signal_established else "new wording"
+
+
+BUCKETS = ("seen wording", "new wording", "no signal")
+
+
+def _acc(results: list[EpisodeResult], bucket: str) -> str:
     group = [r for r in results
-             if r.diagnosis_correct is not None and r.signal_informative is informative]
+             if r.diagnosis_correct is not None and _bucket(r) == bucket]
     if not group:
         return "—"
-    return f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%}"
+    return (f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%} "
+            f"(n={len(group)})")
+
+
+def _oracle_ceiling(results: list[EpisodeResult]) -> tuple[float, float]:
+    """The best any classifier could do, so the columns have a top.
+
+    An oracle knows every wording, and where the text says nothing it names the
+    most common cause on that surface. Conditioning on rail, step and source as
+    well lifts it only to 45.9%, so the surface-level figure below is very
+    nearly the true maximum.
+
+    It is here because a reader who sees 43% in the no-signal column should
+    know that it is within two points of the best anything could do, not that
+    the classifier is failing. Nothing can identify a cause from "Transaction
+    declined"; the honest ceiling is base rates.
+    """
+    from collections import Counter as _C
+
+    murky_groups: dict[str, _C] = defaultdict(_C)
+    murky = 0
+    for r in results:
+        if r.true_cause is None:
+            continue
+        if not r.signal_informative:
+            murky += 1
+            murky_groups[r.surface][r.true_cause] += 1
+    best_murky = sum(c.most_common(1)[0][1] for c in murky_groups.values())
+    total = sum(1 for r in results if r.true_cause is not None)
+    clear = total - murky
+    return ((clear + best_murky) / max(1, total), best_murky / max(1, murky))
 
 
 def _rates(results: list[EpisodeResult]) -> list[float]:
@@ -268,7 +338,7 @@ def main() -> int:
     costs = CostBook.load("config/rates.yaml")
     start = _dt.datetime(2026, 6, 1, tzinfo=IST)
 
-    factories, diagnoser = build_strategies(use_llm=args.llm, seed=args.seed)
+    factories, diagnoser = build_strategies(use_llm=args.llm, seed=args.seed, params=params)
     chain = HashChain(salt=f"eval-{args.seed}")
     results, allocation = run_population(
         params, policies, costs, seed=args.seed, start=start, chain=chain,
@@ -534,22 +604,25 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
     A("ceiling from text alone is roughly the informative share; anything above it has")
     A("to come from context.")
     A("")
-    A("| Arm | classified | correct | accuracy | on informative text | on uninformative |")
-    A("|---|---|---|---|---|---|")
+    A("Three different problems, so three columns. **Seen wording** is text the")
+    A("merchant's resolved history already contains — a lookup is optimal there and no")
+    A("model can beat it. **New wording** is text history has never held: a new")
+    A("acquirer, a bank changing its phrasing. **No signal** is text that identifies")
+    A("nothing, where only base rates remain. An overall figure averages three")
+    A("problems into a number that describes none of them.")
+    A("")
+    A("| Arm | overall | seen wording | new wording | no signal |")
+    A("|---|---|---|---|---|")
     for arm in (Arm.TREATMENT, Arm.BASELINE_RULES):
         rs = [r for r in by_arm.get(arm, []) if r.diagnosis_correct is not None]
         if not rs:
             continue
-        clear = [r for r in rs if r.signal_informative]
-        murky = [r for r in rs if not r.signal_informative]
-
-        def pct(group):
-            return (f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%} "
-                    f"(n={len(group)})") if group else "—"
-
         correct = sum(1 for r in rs if r.diagnosis_correct)
-        A(f"| `{arm}` | {len(rs)} | {correct} | {correct / len(rs):.1%} | "
-          f"{pct(clear)} | {pct(murky)} |")
+        A(f"| `{arm}` | {correct / len(rs):.1%} | "
+          + " | ".join(_acc(rs, b) for b in BUCKETS) + " |")
+    oracle = _oracle_ceiling(results)
+    A(f"| *oracle that knows every wording* | *{oracle[0]:.1%}* | *100.0%* | *100.0%* | "
+      f"*{oracle[1]:.1%}* |")
     A("")
     generated = {RootCause(name) for name in params.failure_causes} | {
         RootCause.MANDATE_REVOKED, RootCause.MANDATE_INSUFFICIENT,

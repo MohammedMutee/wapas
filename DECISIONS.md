@@ -708,3 +708,89 @@ merchant should want depends on how they price re-presenting a payment against
 a card the issuer has already declared dead — and the report deliberately does
 not decide that for them. Stating it as a trade is more useful than any of the
 three ways it could have been dressed up as a victory.
+
+---
+
+### D31 · The classifier was working blind
+**2026-08-23**
+
+The result was 75.4% against a keyword baseline's 74.7%, which is not a result.
+The cause was not the model. It was that every episode was being classified
+from scratch, as though the merchant had never taken a payment before.
+
+A real deployment has months of episodes whose outcome is now known — the
+customer paid, the card was replaced, the mandate was re-signed. It knows what
+"Issuer response 51" resolves to on its own traffic, and it knows its own base
+rates. Withholding both made the task strictly harder than the real one, and
+every number lower than it should have been.
+
+`wapas.diagnose.history.ResolvedHistory` supplies three things, and the second
+matters more than it sounds:
+
+**Exact recall.** A wording resolved consistently before is simply known, and
+is answered *without calling the model at all*. For a fixed vocabulary a lookup
+is optimal; second-guessing it with a language model would be slower, costlier
+and worse. It also removed 57% of the model calls.
+
+**Base rates, conditioned.** When the text says nothing, P(cause | surface,
+rail, step, source, code) is the only evidence there is. Always naming the
+single most common cause scores 18%; conditioning lifts the ceiling to 45.9%,
+so nearly all of it is in the conditioning.
+
+**Neighbours**, for near-duplicate wordings only. See D32 for why only.
+
+**Both arms get it.** A baseline denied the merchant's own resolved history
+would be a strawman, and the comparison has to be an ablation of the model
+rather than of who was allowed to remember things. The keyword classifier went
+from 69.6% to **84.5%**, which is a much harder bar and the right one.
+
+**And the first version of the experiment was broken.** The keyword table
+scored 96.8% on "novel" phrasings, which should have been implausible on its
+face. It was: the table was written with every variant in `sim/signals.py`
+visible on screen, so nothing in that pool was novel *to it*. The measurement
+was of my authorship, not of keyword matching.
+
+So `sim/signals.py` gained a `NOVEL` block — thirteen wordings written from
+payments domain knowledge as an acquirer would phrase the failure — under an
+explicit rule stated in the file: **`KEYWORD_RULES` is frozen with respect to
+them. No keyword may be added or edited to accommodate them, now or later.**
+That is what a keyword table in production experiences, and the git history
+makes the rule checkable. On those, the baseline scores 69.3%.
+
+---
+
+### D32 · Two retrieval designs, measured and rejected
+**2026-08-23**
+
+The obvious next move after adding history was retrieval-augmented few-shot:
+fetch the nearest resolved wordings and show them to the model as exemplars.
+Both versions were built and both were dropped, on evidence.
+
+**Lexical retrieval is worse than nothing.** Character 4-gram similarity on
+unseen wordings does not find the right neighbour; it finds a confident wrong
+one. "Recurring debit bounced at destination bank" retrieves `mandate_revoked`
+at 0.27. "Daily UPI cap reached for this VPA" retrieves `mandate_revoked`.
+Feeding those in as exemplars would actively degrade the answer, and the cases
+where retrieval fires hardest are exactly the cases where help is needed.
+
+Two bugs found on the way, both now regression-tested: retrieval offered
+`"Payment failed"` as an exemplar labelled `authentication_failed` — a
+confident cause attached to a string that identifies nothing — and it offered
+card-checkout wordings to explain mandate failures.
+
+**Semantic retrieval works, and is still not worth it.** NVIDIA serves
+`nv-embedqa-e5-v5` (1024-dim, sub-second). It matched 8 of 13 novel wordings to
+the right cause, a real improvement over lexical.
+
+But the model answers **12 of 13 correctly from the text alone**. So retrieval
+would have bought a second network dependency, an index to build and keep warm,
+another thing to explain, and a fresh source of confidently wrong exemplars —
+in exchange for a signal the model already has. It was not added.
+
+Retrieval survives only at a similarity threshold high enough to admit
+near-duplicates, which acquirers genuinely produce and exact matching misses.
+
+The general point is worth keeping: **the fashionable component is not the
+default answer.** RAG is the reflex here and the measurement said the reflex
+was wrong. What generalises to an unseen wording is the model's semantic
+understanding, not a nearest-neighbour lookup over strings it has never seen.

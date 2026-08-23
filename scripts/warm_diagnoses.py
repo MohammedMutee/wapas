@@ -32,10 +32,15 @@ from sim import build_population, load_params
 from wapas.clock import IST
 from wapas.config import settings
 from wapas.diagnose import SYSTEM, DiagnosisCache, DiagnosisResponse, LLMDiagnoser
+from wapas.diagnose.history import build_history
 from wapas.llm import OpenAICompatProvider, ask_structured
 from wapas.llm.costs import CostBook
 from wapas.llm.retry import RetryingProvider
 from wapas.strategies.base import StrategyContext
+
+HISTORY_SEED = 770777
+"""The merchant's resolved past. A different seed from any evaluation run, so
+history and evaluation never share an episode."""
 
 
 def build_provider(cfg):
@@ -69,7 +74,9 @@ def main() -> int:
         params, run_seed=args.seed, start=_dt.datetime(2026, 6, 1, tzinfo=IST)
     )
     cache = DiagnosisCache()
-    probe = LLMDiagnoser(build_provider(cfg), model=cfg.model_reasoning, costs=costs)
+    history = build_history(params, seed=HISTORY_SEED, start=_dt.datetime(2026, 6, 1, tzinfo=IST))
+    probe = LLMDiagnoser(build_provider(cfg), model=cfg.model_reasoning, costs=costs,
+                         history=history)
     print(f"model: {cfg.model_reasoning}", file=sys.stderr)
 
     pending: dict[str, str] = {}
@@ -81,6 +88,8 @@ def main() -> int:
             error_step=ep.error_step, attempt_no=1,
             is_business=getattr(ep.counterparty, "is_business", False),
         )
+        if history.exact(ep.error_description) is not None:
+            continue  # answered from history; the model is never asked
         user, digest = probe.prompt_for(ctx)
         if digest not in cache.entries:
             pending.setdefault(digest, user)

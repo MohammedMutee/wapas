@@ -109,6 +109,16 @@ def _band(amount: Paise) -> str:
     return "over Rs 50,000"
 
 
+_LEVEL_WORDING = {
+    "full": "failures with exactly this rail, step, source and error code",
+    "no_code": "failures with this rail, step and source",
+    "surface_rail_step": "failures on this rail at this step",
+    "surface_rail": "failures on this rail",
+    "surface": "failures on this surface",
+    "global": "all resolved failures",
+}
+
+
 def build_user_prompt(
     *,
     surface: Surface,
@@ -119,8 +129,20 @@ def build_user_prompt(
     error_step: str,
     amount_paise: Paise,
     is_business: bool,
+    prior: tuple[list[tuple[object, float]], str] | None = None,
+    neighbours: list[tuple[object, float]] | None = None,
 ) -> str:
-    """The episode-specific half. Deliberately narrow, and free of PII."""
+    """The episode-specific half. Deliberately narrow, and free of PII.
+
+    ``prior`` and ``neighbours`` come from the merchant's resolved history.
+    Both are evidence a deployed system genuinely has and earlier versions of
+    this prompt withheld, which made the task harder than the real one.
+
+    Base rates are rounded to 5% on purpose. The model cannot use more
+    precision than that, and rounding collapses hundreds of near-identical
+    contexts onto the same prompt — which is what keeps the diagnosis cache
+    small enough to warm.
+    """
     lines = [
         "FAILURE SIGNAL",
         f"  surface:      {surface}",
@@ -134,4 +156,31 @@ def build_user_prompt(
         f"  amount band:  {_band(amount_paise)}",
         f"  counterparty: {'business' if is_business else 'consumer'}",
     ]
+
+    if prior:
+        distribution, level = prior
+        top = [(c, round(share * 20) / 20) for c, share in distribution[:4]
+               if round(share * 20) / 20 >= 0.05]
+        if top:
+            lines += [
+                "",
+                f"BASE RATES from this merchant's resolved history, over "
+                f"{_LEVEL_WORDING.get(level, level)}:",
+            ]
+            lines += [f"  {share:.0%}  {cause}" for cause, share in top]
+            lines.append(
+                "  Use these when the text is uninformative. They are the best "
+                "evidence available then, and better than `unknown`. Do NOT let "
+                "them override text that plainly names a different mechanism."
+            )
+
+    if neighbours:
+        lines += ["", "SIMILAR WORDINGS RESOLVED BEFORE (similarity, resolved cause):"]
+        lines += [f"  {score:.2f}  {ex.cause}  \"{ex.description}\""
+                  for ex, score in neighbours]
+        lines.append(
+            "  These are lexically similar, not necessarily the same failure. "
+            "Weigh them against what the text actually says."
+        )
+
     return "\n".join(lines)

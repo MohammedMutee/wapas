@@ -6,24 +6,24 @@ Seed `20260901` · episodes `5000` · policy `contact/3+money/4+escalation/3` ·
 > world defined in `sim/params.yaml`, whose generative parameters are published
 > and which the agent never reads. These are not measured Razorpay statistics.
 
-> **The treatment arm.** The treatment arm runs the **LLM agent**. It shares the playbook library, the policy gate, the cost ledger and the audit chain with `baseline_rules`; the only difference between the two arms is how the root cause is classified. That is what makes the comparison an ablation of the model rather than of the system around it.
+> **The treatment arm.** The treatment arm is running the **rules-only** planner: this run was made without `--llm`, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not meaningful in this report.
 
 ## Headline
 
 | Metric | Value |
 |---|---|
 | Total revenue at risk | ₹1,16,43,570.53 |
-| Gross recovered (treatment) | ₹23,41,075.59 |
+| Gross recovered (treatment) | ₹23,42,787.98 |
 | Control arm, untreated, scaled to treatment size | ₹5,36,526.77 |
-| **Incremental recovery** | **₹18,04,548.81** (95% CI [₹14,98,071.70, ₹21,28,663.30], p = 0.0001) |
-| Realised cost of treatment | ₹356.47 |
-| **Net incremental recovery** | **₹18,04,192.34** |
-| Modelled externalities (opt-outs, complaints, disputes) | less ₹2,71,279.73 |
-| **Net after externalities** | **₹15,32,912.61** |
+| **Incremental recovery** | **₹18,06,261.20** (95% CI [₹14,99,888.09, ₹21,31,314.96], p = 0.0001) |
+| Realised cost of treatment | ₹483.51 |
+| **Net incremental recovery** | **₹18,05,777.69** |
+| Modelled externalities (opt-outs, complaints, disputes) | less ₹3,11,331.61 |
+| **Net after externalities** | **₹14,94,446.08** |
 | Cost per ₹100 recovered | ₹0.02 |
-| Policy denials (actions blocked before execution) | 139 |
-| Policy modifications (rescheduled, not dropped) | 714 |
-| Audit chain | chain intact: 39471 entries verified |
+| Policy denials (actions blocked before execution) | 383 |
+| Policy modifications (rescheduled, not dropped) | 818 |
+| Audit chain | chain intact: 40445 entries verified |
 
 The control arm is the whole point. It recovered 14.9% of its episodes **without any intervention at all**. Reporting gross recovery would have claimed credit for every one of them.
 
@@ -57,8 +57,8 @@ columns are the ones to read.
 
 | Arm | n | Recovery rate | Gross / ep | Net / ep | Net after ext. / ep | Contacts / ep | Opt-out rate | Complaints |
 |---|---|---|---|---|---|---|---|---|
-| `treatment` | 2000 | 57.9% | ₹1,170.53 | ₹1,170.35 | ₹1,034.71 | 0.77 | 4.7% | 21 |
-| `baseline_rules` | 750 | 61.1% | ₹1,031.93 | ₹1,031.73 | ₹728.33 | 0.85 | 5.7% | 12 |
+| `treatment` | 2000 | 58.9% | ₹1,171.39 | ₹1,171.15 | ₹1,015.48 | 0.89 | 5.5% | 27 |
+| `baseline_rules` | 750 | 60.5% | ₹1,033.94 | ₹1,033.70 | ₹739.61 | 0.90 | 5.7% | 13 |
 | `baseline_naive` | 750 | 61.9% | ₹1,380.48 | ₹1,380.47 | ₹1,296.37 | 0.50 | 2.3% | 8 |
 | `baseline_blast` | 750 | 55.3% | ₹1,037.01 | ₹1,036.66 | ₹835.71 | 1.00 | 6.1% | 11 |
 | `control` | 750 | 14.9% | ₹268.26 | ₹268.26 | ₹268.26 | 0.00 | 0.0% | 0 |
@@ -71,10 +71,10 @@ smaller arm.
 
 | Compared with | n | Δ gross / 1,000 ep | 95% CI | p | Claim supported? |
 |---|---|---|---|---|---|
-| `control` | 750 | ₹9,02,274.40 | [₹7,49,035.85, ₹10,64,331.65] | 0.0001 | yes |
-| `baseline_naive` | 750 | -₹2,09,943.91 | [-₹5,18,480.95, ₹74,987.02] | 0.0792 | no — indistinguishable from noise |
-| `baseline_blast` | 750 | ₹1,33,519.06 | [-₹1,09,019.09, ₹3,62,432.31] | 0.2357 | no — indistinguishable from noise |
-| `baseline_rules` | 750 | ₹1,38,604.71 | [-₹74,564.34, ₹3,47,545.53] | 0.2063 | no — indistinguishable from noise  ← **A/A, see below** |
+| `control` | 750 | ₹9,03,130.60 | [₹7,49,944.04, ₹10,65,657.48] | 0.0001 | yes |
+| `baseline_naive` | 750 | -₹2,09,087.71 | [-₹5,14,102.11, ₹74,842.96] | 0.0801 | no — indistinguishable from noise |
+| `baseline_blast` | 750 | ₹1,34,375.25 | [-₹1,06,400.88, ₹3,65,688.75] | 0.2353 | no — indistinguishable from noise |
+| `baseline_rules` | 750 | ₹1,37,446.85 | [-₹78,370.39, ₹3,48,526.20] | 0.2212 | no — indistinguishable from noise  ← **A/A, see below** |
 
 #### The same comparison on recovery rate
 
@@ -85,10 +85,10 @@ chosen after seeing the answer.
 
 | Compared with | Δ recovery rate (pp) | 95% CI | p | Claim supported? |
 |---|---|---|---|---|
-| `control` | +42.92 | [+39.55, +46.23] | 0.0001 | yes |
-| `baseline_naive` | -4.02 | [-8.12, +0.00] | 0.0546 | no — indistinguishable from noise |
-| `baseline_blast` | +2.52 | [-1.65, +6.65] | 0.2383 | no — indistinguishable from noise |
-| `baseline_rules` | -3.22 | [-7.30, +0.83] | 0.1253 | no — indistinguishable from noise |
+| `control` | +43.97 | [+40.58, +47.27] | 0.0001 | yes |
+| `baseline_naive` | -2.97 | [-7.00, +1.05] | 0.1598 | no — indistinguishable from noise |
+| `baseline_blast` | +3.57 | [-0.55, +7.70] | 0.0964 | no — indistinguishable from noise |
+| `baseline_rules` | -1.63 | [-5.70, +2.47] | 0.4542 | no — indistinguishable from noise |
 
 #### Null controls — read these before believing any row above
 
@@ -98,14 +98,14 @@ construction, so this measures what the harness reports when there is nothing
 to report. It stays valid after the LLM lands, which the
 `treatment` vs `baseline_rules` row will not.
 
-> Δ = -₹1,54,620.74 per 1,000 episodes, 95% CI [-₹4,42,215.42, ₹1,02,411.19], p = 0.2143 — correctly not significant
+> Δ = -₹2,18,968.94 per 1,000 episodes, 95% CI [-₹5,05,718.42, ₹37,038.01], p = 0.0618 — correctly not significant
 
-The noise floor for a comparison of this size is roughly ±₹4,42,215.42 per 1,000
+The noise floor for a comparison of this size is roughly ±₹5,05,718.42 per 1,000
 episodes. A difference smaller than that is not a difference.
 
-On recovery rate the same placebo gives -1.50 pp, p = 0.5342 — correctly not significant.
+On recovery rate the same placebo gives -1.80 pp, p = 0.4462 — correctly not significant.
 
-**Second A/A.** `treatment` and `baseline_rules` also run the same strategy today: p = 0.2063 — correctly not significant.
+**Second A/A.** `treatment` and `baseline_rules` also run the same strategy today: p = 0.2212 — correctly not significant.
 
 One seed cannot establish a false-positive *rate*. `make calibrate` runs the
 placebo across many seeds and reports the measured rate against the nominal 5%;
@@ -113,7 +113,7 @@ see `results/calibration.md`.
 
 ### The aggression trade
 
-`baseline_blast` recovers 55.3% of episodes against treatment's 57.9%, using 1.00 contacts per episode against 0.77, and produces an opt-out rate of 6.1% against 4.7%.
+`baseline_blast` recovers 55.3% of episodes against treatment's 58.9%, using 1.00 contacts per episode against 0.89, and produces an opt-out rate of 6.1% against 5.5%.
 
 Channel spend cannot settle this argument. An SMS costs 12 paise and a
 recovered invoice is worth thousands of rupees, so on a spend-only ledger the
@@ -123,12 +123,12 @@ priced — see `externalities` in `config/rates.yaml`.
 
 | Arm | Gross / ep | Realised cost / ep | Externalities / ep | Net after ext. / ep |
 |---|---|---|---|---|
-| `treatment` | ₹1,170.53 | ₹0.17 | ₹135.63 | ₹1,034.71 |
+| `treatment` | ₹1,171.39 | ₹0.24 | ₹155.66 | ₹1,015.48 |
 | `baseline_blast` | ₹1,037.01 | ₹0.34 | ₹200.95 | ₹835.71 |
 | `baseline_naive` | ₹1,380.48 | ₹0.00 | ₹84.09 | ₹1,296.37 |
-| `baseline_rules` | ₹1,031.93 | ₹0.19 | ₹303.40 | ₹728.33 |
+| `baseline_rules` | ₹1,033.94 | ₹0.23 | ₹294.09 | ₹739.61 |
 
-Treatment against blast on **net after externalities**: ₹1,99,006.42 per 1,000 episodes, 95% CI [-₹76,275.76, ₹4,68,229.73], p = 0.1324 — no — indistinguishable from noise.
+Treatment against blast on **net after externalities**: ₹1,79,773.16 per 1,000 episodes, 95% CI [-₹95,375.40, ₹4,48,722.96], p = 0.1802 — no — indistinguishable from noise.
 
 **The externality figures are assumptions, not measurements**, and they are
 the most contestable numbers in this project. They are reported on their own
@@ -145,10 +145,18 @@ diagnostic text at all — this is a judgement call rather than a lookup. The
 ceiling from text alone is roughly the informative share; anything above it has
 to come from context.
 
-| Arm | classified | correct | accuracy | on informative text | on uninformative |
-|---|---|---|---|---|---|
-| `treatment` | 2000 | 1509 | 75.4% | 89.5% (n=1645) | 10.4% (n=355) |
-| `baseline_rules` | 750 | 560 | 74.7% | 85.7% (n=614) | 25.0% (n=136) |
+Three different problems, so three columns. **Seen wording** is text the
+merchant's resolved history already contains — a lookup is optimal there and no
+model can beat it. **New wording** is text history has never held: a new
+acquirer, a bank changing its phrasing. **No signal** is text that identifies
+nothing, where only base rates remain. An overall figure averages three
+problems into a number that describes none of them.
+
+| Arm | overall | seen wording | new wording | no signal |
+|---|---|---|---|---|
+| `treatment` | 84.6% | 100.0% (n=1297) | 69.3% (n=348) | 43.4% (n=355) |
+| `baseline_rules` | 83.2% | 100.0% (n=477) | 66.4% (n=137) | 41.2% (n=136) |
+| *oracle that knows every wording* | *90.5%* | *100.0%* | *100.0%* | *44.5%* |
 
 ### Accuracy is the wrong metric on an unanswerable question
 
@@ -161,76 +169,14 @@ accuracy metric rewards guessing and penalises honesty, which is the same
 mistake as D28 and this time it is in the scoring rather than the planner.
 
 So the number to read instead: of 355 episodes whose text could not
-identify the cause, the treatment arm said `unknown` on **132** (37%).
+identify the cause, the treatment arm said `unknown` on **0** (0%).
 That is the behaviour worth having, and it costs accuracy points.
-
-**206 diagnoses named a cause this simulator never generates**: `gateway_error` (206). This is not the same as abstaining, and it is not entirely the classifier's
-fault either. The taxonomy is the *system's*, and it offers causes the world
-model does not produce — `gateway_error` happens to real payment systems and
-never happens here. A classifier cannot know that, so part of this count is a
-gap in our simulator. The other part is not: reaching for `gateway_error` on a
-bare "Transaction declined" names a specific mechanism the evidence does not
-support, when `unknown` was available. Both are true, and the count is
-reported rather than adjudicated.
 
 The split is the interesting column. On text that names a mechanism, a keyword
 table with the ISO 8583 codes in it is very hard to beat and a model has almost
 nothing to add. The case for a model rests entirely on the right-hand column —
 the failures where the answer has to be assembled from weak context rather than
 looked up — and on that column being a large enough share of reality to matter.
-
-## The model
-
-| | |
-|---|---|
-| Model | `nvidia/nemotron-3-super-120b-a12b` |
-| Fallback chain | `openai/gpt-oss-120b` |
-| Diagnoses served | 2000 (2000 from cache, 0 live) |
-| Fell back to rules | 0 (0.0%) |
-| Stopped by the budget ceiling | 0 |
-| Attempts per successful call | 0.00 |
-| Tokens | 0 in, 0 out |
-| Token cost (notional; free tier) | ₹0.00 |
-
-Prompts are content-addressed and the cache is keyed on their digest, so a
-second run of the same seed makes no calls at all and produces a byte-identical
-report. Amounts reach the model as bands rather than exact figures, which is
-what makes that collapse possible — and the prompt carries no personal data of
-any kind, because nothing about diagnosing a decline requires knowing who the
-customer is.
-
-## What the model buys, and what it costs
-
-The ablation. Same playbooks, same gate, same ledger, same audit chain;
-the only difference between these two arms is who classifies the cause.
-
-| | Model | Keyword classifier |
-|---|---|---|
-| Accuracy, text that names a mechanism | 89.5% | 85.7% |
-| Accuracy, text that does not | 10.4% | 25.0% |
-| Forbidden retries / 1,000 episodes | **33.5** | 48.0 |
-| Recovery rate | 57.9% | 61.1% |
-| Difference in recovery rate | -3.22 pp, p = 0.125 | — |
-
-**It does not buy accuracy.** Overall the two are within a point of each
-other. On text that names a mechanism the model is genuinely better, and on
-text that does not, the accuracy metric punishes it for abstaining.
-
-**It buys calibrated uncertainty the system can act on.** Forbidden retries
-fall from 48 to 34 per 1,000 episodes, 30% fewer. A keyword table returns one
-label. The model returns a label, a confidence, and what else it might have
-been — and when the runner-up is a dead card or a risk decline, the gate
-refuses the retry that a single confident-looking label would have allowed.
-That rule is worth half the model arm's harm, and no regex can express its
-input.
-
-**It costs recovery.** -3.22 percentage points against
-the keyword arm (p = 0.125, not significant, and inside the
-placebo noise floor). Abstaining routes to the conservative playbook and the
-runner-up rule blocks retries that would sometimes have worked. That is a
-real trade and not a rounding error: **less revenue, less harm.** Which side
-a merchant should want depends on how they price a retry against a dead
-card, and this report deliberately does not decide that for them.
 
 ## Harm
 
@@ -242,14 +188,14 @@ number a better diagnoser has to drive down.
 
 | Arm | Forbidden retries / 1,000 ep | Opt-outs / 1,000 ep | Complaints / 1,000 ep | Disputes / 1,000 ep |
 |---|---|---|---|---|
-| `treatment` | 33.5 | 46.5 | 10.5 | 1.5 |
-| `baseline_rules` | 48.0 | 57.3 | 16.0 | 5.3 |
+| `treatment` | 20.0 | 55.5 | 13.5 | 4.5 |
+| `baseline_rules` | 13.3 | 57.3 | 17.3 | 5.3 |
 | `baseline_naive` | 965.3 | 22.7 | 10.7 | 2.7 |
 | `baseline_blast` | 453.3 | 61.3 | 14.7 | 6.7 |
 | `control` | 0.0 | 0.0 | 0.0 | 0.0 |
 
 `baseline_naive` does not diagnose at all, so it retries dead cards, risk
-declines and revoked mandates indiscriminately — **29x** the rate of the
+declines and revoked mandates indiscriminately — **48x** the rate of the
 diagnosing arm. That is the harm the diagnosis step exists to prevent.
 
 **And it still wins on money.** A forbidden retry is priced in
@@ -265,37 +211,37 @@ ranking stands as measured and the argument is made on its actual grounds.
 
 | State | Treatment | Naive | Blast | Control |
 |---|---|---|---|---|
-| `escalated` | 122 | 0 | 0 | 0 |
-| `exhausted` | 488 | 268 | 291 | 0 |
-| `partially_recovered` | 20 | 4 | 18 | 0 |
-| `recovered` | 1137 | 460 | 397 | 112 |
+| `escalated` | 126 | 0 | 0 | 0 |
+| `exhausted` | 541 | 268 | 291 | 0 |
+| `partially_recovered` | 21 | 4 | 18 | 0 |
+| `recovered` | 1157 | 460 | 397 | 112 |
 | `skipped_negative_ev` | 0 | 0 | 0 | 638 |
-| `suppressed` | 90 | 18 | 44 | 0 |
-| `unrecoverable` | 143 | 0 | 0 | 0 |
+| `suppressed` | 114 | 18 | 44 | 0 |
+| `unrecoverable` | 41 | 0 | 0 | 0 |
 
 ## Per-cause recovery (treatment)
 
 | Root cause | n | recovered | rate | gross |
 |---|---|---|---|---|
-| `insufficient_funds` | 375 | 240 | 64.0% | ₹3.40L |
-| `mandate_insufficient` | 296 | 148 | 50.0% | ₹1.75L |
-| `authentication_failed` | 244 | 148 | 60.7% | ₹2.41L |
-| `invoice_forgotten` | 207 | 149 | 72.0% | ₹6.48L |
-| `issuer_down` | 172 | 161 | 93.6% | ₹2.84L |
-| `technical_timeout` | 118 | 84 | 71.2% | ₹91.0K |
-| `mandate_revoked` | 116 | 55 | 47.4% | ₹88.0K |
-| `invoice_cash_crunch` | 97 | 56 | 57.7% | ₹1.60L |
-| `card_expired_or_invalid` | 91 | 39 | 42.9% | ₹62.7K |
+| `insufficient_funds` | 375 | 260 | 69.3% | ₹3.63L |
+| `mandate_insufficient` | 296 | 136 | 45.9% | ₹1.47L |
+| `authentication_failed` | 244 | 160 | 65.6% | ₹2.55L |
+| `invoice_forgotten` | 207 | 149 | 72.0% | ₹6.47L |
+| `issuer_down` | 172 | 160 | 93.0% | ₹2.70L |
+| `technical_timeout` | 118 | 81 | 68.6% | ₹99.9K |
+| `mandate_revoked` | 116 | 58 | 50.0% | ₹78.3K |
+| `invoice_cash_crunch` | 97 | 50 | 51.5% | ₹1.67L |
+| `card_expired_or_invalid` | 91 | 44 | 48.4% | ₹66.6K |
 | `invoice_disputed` | 85 | 11 | 12.9% | ₹1.57L |
-| `limit_exceeded` | 74 | 43 | 58.1% | ₹59.3K |
-| `risk_declined` | 71 | 7 | 9.9% | ₹16.3K |
+| `limit_exceeded` | 74 | 45 | 60.8% | ₹64.0K |
+| `risk_declined` | 71 | 8 | 11.3% | ₹8.3K |
 | `customer_cancelled` | 54 | 16 | 29.6% | ₹19.3K |
 
 ## Known weaknesses
 
 - Results are in-simulation. The sensitivity sweep (±30% on every parameter)
   is not yet implemented, so these numbers are one point in parameter space.
-- The treatment arm runs the **LLM agent**. It shares the playbook library, the policy gate, the cost ledger and the audit chain with `baseline_rules`; the only difference between the two arms is how the root cause is classified. That is what makes the comparison an ablation of the model rather than of the system around it.
+- The treatment arm is running the **rules-only** planner: this run was made without `--llm`, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not meaningful in this report.
 - Self-recovery is credited to whichever arm the episode fell in, including
   treatment. That is correct — it is exactly what the control arm subtracts —
   but it means the gross figure above is *not* the agent's achievement.

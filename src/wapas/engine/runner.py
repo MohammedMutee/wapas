@@ -211,6 +211,8 @@ class EpisodeResult:
     """Whether the failure text could identify the cause. For reporting only:
     it splits diagnosis accuracy into the questions that were answerable and
     the ones that were not."""
+    signal_established: bool = True
+    """Whether the wording predates the evaluation window. For reporting only."""
     time_to_recovery: _dt.timedelta | None = None
     terminal_reason: str = ""
     audit_entries: int = 0
@@ -271,6 +273,7 @@ class EpisodeRunner:
             ref=ep.ref, arm=arm, surface=str(ep.surface), state=EpisodeState.INGESTED,
             amount_paise=ep.amount_paise, true_cause=ep.true_cause,
             signal_informative=getattr(ep, "signal_informative", True),
+            signal_established=getattr(ep, "signal_established", True),
         )
         now = ep.occurred_at
         # Two distinct windows, and conflating them is how a control arm ends up
