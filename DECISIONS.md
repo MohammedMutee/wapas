@@ -601,3 +601,58 @@ Effect on the rules-only arm: recovery 52.2% → 58.9%, and it is no longer
 significantly behind the fixed-ladder baseline (p 0.038 → 0.087 on rupees,
 0.013 → 0.158 on recovery rate). It applies identically to every arm that
 diagnoses, so it changes the level rather than the comparison.
+
+---
+
+### D29 · The sweep found a parameter that does nothing
+**2026-08-23**
+
+`eval/sensitivity.py` scales each parameter group by ±30% and re-runs the whole
+evaluation, 25 runs in all. Two things it confirmed, and one it exposed.
+
+**Confirmed.** The agent beats the randomised control arm in all 25 runs —
+₹6.43L to ₹13.36L incremental per 1,000 episodes, which is the honest range to
+quote rather than the central figure. And the harm gap holds everywhere: the
+fixed ladder performs 17× to 28× as many forbidden retries under every
+perturbation, because that follows from it not looking at the cause rather than
+from any number in a parameter file.
+
+**Sharpened.** The rules planner trails the fixed ladder on rupees in **25 of
+25 runs** and reaches significance in none of them. Both halves matter. On the
+usual rule there is nothing to report; but a consistently negative sign across
+independent perturbations is worth more than any single p-value, so the honest
+reading is that it is probably slightly behind and this sweep cannot say by how
+much.
+
+**Exposed.** `issuer_outages.bursts_per_90_days` changes nothing. Moving it from
+14 to 10 or 18 leaves every headline figure identical.
+
+That parameter is attached to one of this project's more heavily defended
+design choices: outages are modelled as *correlated bursts* rather than i.i.d.
+draws, on the argument — correct — that independent downtime would let a fixed
+ladder do nearly as well as a cause-aware one and make timing intelligence look
+worthless. The argument is sound. It is also currently doing no work.
+
+Nothing consumes the correlation. Every episode is diagnosed and planned in
+isolation, so what reaches the response model is only this payment's distance
+from its own outage ending — a marginal quantity the burst count does not
+change. The clustering is real in the data and invisible to the agent.
+
+What would make it matter is an agent that reads *across* episodes: a spike of
+`issuer_down` failures on one bank is observable, and the right response is to
+hold every retry against that issuer until it recovers rather than
+rediscovering the outage one episode at a time. That is a genuine capability
+and a genuine product feature. It is not built, so until it is, the bursty
+outage model is a property of the simulator and not something the results
+depend on — and the sweep says so in those words.
+
+A knob that changes nothing is not reassurance. It is either a result that
+genuinely does not depend on it, or a mechanism wired to nothing, and the only
+way to tell is to look.
+
+**One more, on the analysis itself.** The first version of this section flagged
+four inert parameters, three of which were prices. A price cannot move gross
+recovery by construction, so testing it on gross reports every rate in the card
+as inert. Each knob is now judged on the metric it can actually move. A
+self-critical check that produces false findings is worse than none, because it
+spends the credibility it was supposed to earn.

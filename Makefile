@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate redteam replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate sweep redteam replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -47,6 +47,9 @@ eval-llm: warm   ## Run the evaluation with the LLM agent as the treatment arm
 
 calibrate:       ## Measure the false-positive rate of the evaluation on known nulls
 	$(PY) -m eval.calibrate --seeds $${SEEDS:-300}
+
+sweep:           ## Sensitivity: every parameter +/-30%, do the conclusions hold?
+	$(PY) -m eval.sensitivity --factor $${FACTOR:-0.30}
 
 redteam:         ## Run the adversarial suite. Expect 0 escapes.
 	$(PY) -m redteam.run

@@ -161,7 +161,11 @@ class SimParams(_B):
             if isinstance(node, (int, float)) and not isinstance(node, bool) and any(
                 path.endswith(k) or f".{k}." in f".{path}." for k in keys
             ):
-                return node * factor
+                scaled = node * factor
+                # An integer parameter stays an integer. Scaling a count of
+                # outage bursts to 9.8 is not a more precise world model, it is
+                # a validation error two minutes into a sweep.
+                return round(scaled) if isinstance(node, int) else scaled
             return node
 
         return SimParams.model_validate(scale(data, ""))

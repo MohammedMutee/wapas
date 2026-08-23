@@ -76,7 +76,8 @@ make warm        # pre-fetch every distinct diagnosis prompt into .cache/
 make eval        # seeded batch, rules planner → results/report.md
 make eval-llm    # same, with the LLM agent as the treatment arm
 make calibrate   # false-positive rate on known nulls → results/calibration.md
-make redteam     # 20 adversarial scenarios; expect 0 escapes
+make sweep       # ±30% on every parameter → results/sensitivity.md
+make redteam     # 33 adversarial scenarios; expect 0 escapes
 ```
 
 ## What exists today
@@ -102,7 +103,9 @@ make redteam     # 20 adversarial scenarios; expect 0 escapes
 | LLM diagnosis (structured output, cached, priced) | ✅ | `src/wapas/diagnose/`, NVIDIA NIM |
 | Calibration validator on model output | ✅ | a generic failure signal cannot support a confident answer |
 | Actuators against real Razorpay APIs | ⬜ | next |
-| Sensitivity sweep + ablations | ⬜ | |
+| Sensitivity sweep (±30% on every parameter) | ✅ | [`results/sensitivity.md`](results/sensitivity.md) |
+| Adversarial suite | ✅ | [`results/redteam.md`](results/redteam.md), 33 scenarios |
+| CI regenerates the report and checks the README | ✅ | `.github/workflows/ci.yml` |
 | Dashboard | ⬜ | |
 
 ## Architecture in one line
