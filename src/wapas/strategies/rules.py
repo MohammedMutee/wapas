@@ -4,71 +4,164 @@ Two jobs. It is the ``baseline_rules`` ablation that answers *"does the LLM
 earn its cost?"*, and it is the deterministic fallback the agent degrades to
 when a model call fails validation.
 
-It is written to be genuinely good — a keyword classifier over the gateway
-error text, feeding the same playbook library the agent uses. Beating a
-strawman would prove nothing, so this baseline is built to be hard to beat.
-Where the LLM should win is the long tail: error strings this classifier has
-never seen, ambiguous multi-signal cases, and free-text replies from buyers.
+It is written to be genuinely good, because beating a strawman proves nothing.
+That means it handles what a competent integration engineer would actually have
+handled after a year of reading acquirer logs:
+
+* prose in several phrasings per cause, not one canonical string
+* **ISO 8583 response codes** — 51, 05, 54, 91, 59, 61 — which is what a real
+  gateway returns when it returns anything at all
+* NACH return reasons and UPI-specific wording
+* buyer free-text on the receivables surface
+* and, when the text says nothing at all, a **context fallback** over rail,
+  step and surface rather than an immediate shrug
+
+Where the LLM has to earn its place is the residue: text whose surface reading
+points at the wrong cause, buyer replies that are polite and vague, and the
+genuinely uninformative failures where the answer has to be assembled from
+weak signals rather than looked up.
 """
 
 from __future__ import annotations
+
+import re
 
 from ..domain import Diagnosis, ProposedAction, RootCause, Surface
 from ..plan import playbook_for
 from .base import StrategyContext
 
-# Ordered: the first pattern that matches wins, so put the specific before the
-# general. `insufficient` must be checked before `declined`, because an
-# insufficient-balance decline is both.
+# ISO 8583 / acquirer response codes, which carry the cause exactly when the
+# prose does not. Matched on a word boundary so "51" does not fire on "1519".
+ISO_CODES: dict[str, tuple[RootCause, float]] = {
+    "51": (RootCause.INSUFFICIENT_FUNDS, 0.94),
+    "05": (RootCause.RISK_DECLINED, 0.70),   # do-not-honour: genuinely ambiguous
+    "54": (RootCause.CARD_EXPIRED_OR_INVALID, 0.95),
+    "91": (RootCause.ISSUER_DOWN, 0.93),
+    "59": (RootCause.RISK_DECLINED, 0.92),
+    "61": (RootCause.LIMIT_EXCEEDED, 0.92),
+}
+
+# Ordered: the first pattern that matches wins, so specific before general.
+# `insufficient` must precede `declined`, because an insufficient-balance
+# decline is both.
 KEYWORD_RULES: tuple[tuple[tuple[str, ...], RootCause, float], ...] = (
-    (("insufficient balance", "insufficient funds", "low balance"),
+    (("insufficient balance", "insufficient funds", "low balance",
+      "not sufficient funds", "funds insufficient", "balance check failed"),
      RootCause.INSUFFICIENT_FUNDS, 0.92),
-    (("3ds", "authentication", "otp", "did not complete"),
-     RootCause.AUTHENTICATION_FAILED, 0.88),
-    (("not reachable", "issuer is down", "bank is down", "retry shortly"),
-     RootCause.ISSUER_DOWN, 0.85),
-    (("timed out", "timeout", "status unknown"), RootCause.TECHNICAL_TIMEOUT, 0.80),
-    (("expired", "invalid card", "different payment method"),
+    (("mandate has been revoked", "revoked", "umrn not active", "mandate cancelled",
+      "registration withdrawn"),
+     RootCause.MANDATE_REVOKED, 0.90),
+    (("auto-debit failed", "recurring debit bounced", "nach return"),
+     RootCause.MANDATE_INSUFFICIENT, 0.85),
+    (("3ds", "authentication", "otp", "did not complete", "acs", "bank page"),
+     RootCause.AUTHENTICATION_FAILED, 0.86),
+    (("not reachable", "issuer is down", "bank is down", "retry shortly",
+      "inoperative", "upstream bank timeout", "bank as unavailable"),
+     RootCause.ISSUER_DOWN, 0.88),
+    (("timed out", "timeout", "status unknown", "indeterminate",
+      "no final status", "reconciliation pending"),
+     RootCause.TECHNICAL_TIMEOUT, 0.82),
+    (("expired", "invalid card", "different payment method", "failed validation",
+      "no longer valid"),
      RootCause.CARD_EXPIRED_OR_INVALID, 0.90),
-    (("exceeds", "limit"), RootCause.LIMIT_EXCEEDED, 0.82),
-    (("risk engine", "risk", "suspected fraud"), RootCause.RISK_DECLINED, 0.86),
-    (("cancelled by the customer", "cancelled"), RootCause.CUSTOMER_CANCELLED, 0.84),
-    (("mandate has been revoked", "revoked"), RootCause.MANDATE_REVOKED, 0.90),
-    (("auto-debit failed",), RootCause.MANDATE_INSUFFICIENT, 0.85),
-    (("disputes the line items", "disputes"), RootCause.INVOICE_DISPUTED, 0.88),
-    (("cash constraints",), RootCause.INVOICE_CASH_CRUNCH, 0.85),
-    (("past due date",), RootCause.INVOICE_FORGOTTEN, 0.70),
+    (("exceeds", "limit", "daily upi cap"), RootCause.LIMIT_EXCEEDED, 0.84),
+    (("risk engine", "suspected fraud", "do not honour", "do not honor"),
+     RootCause.RISK_DECLINED, 0.88),
+    (("cancelled by the customer", "abandoned", "pressed back",
+      "expired without approval", "cancelled"),
+     RootCause.CUSTOMER_CANCELLED, 0.82),
+    # ── receivables: what the buyer said ─────────────────────────────────────
+    (("disputes the line items", "do not match", "billed twice", "under query",
+      "disputes"),
+     RootCause.INVOICE_DISPUTED, 0.88),
+    (("cash constraints", "collections are slow", "funds are tight",
+      "payment plan", "pay in two parts", "please hold"),
+     RootCause.INVOICE_CASH_CRUNCH, 0.86),
+    (("slipped through", "cannot find it", "resend the invoice",
+      "reminders unanswered", "no response recorded", "past due date"),
+     RootCause.INVOICE_FORGOTTEN, 0.72),
 )
+
+_CODE_PATTERN = re.compile(r"\b(0?5|51|54|59|61|91)\b")
+
+
+def _iso_code(text: str) -> tuple[RootCause, float] | None:
+    """Pull an issuer response code out of the text, if one is quoted.
+
+    Only trusted when the surrounding text actually announces a code —
+    "issuer response 51", "declined by issuing bank (05)" — because a bare
+    two-digit number in prose is far more often an amount or a date.
+    """
+    if not any(marker in text for marker in
+               ("response", "issuer response", "(0", "(5", "(6", "(9", "reason")):
+        return None
+    match = _CODE_PATTERN.search(text)
+    if not match:
+        return None
+    return ISO_CODES.get(match.group(1).zfill(2))
+
+
+def _from_context(ctx: StrategyContext) -> tuple[RootCause, float, str]:
+    """No usable text. Guess from where in the flow it broke.
+
+    Weak, and honestly labelled as weak by its confidence. But refusing to use
+    the structured fields when the prose is empty would make the baseline worse
+    than a real integration, and an easy baseline is not worth having.
+    """
+    if ctx.surface is Surface.RECEIVABLE:
+        return RootCause.INVOICE_FORGOTTEN, 0.35, "no buyer signal; most overdue invoices are unnoticed"
+    if ctx.surface is Surface.MANDATE:
+        return RootCause.MANDATE_INSUFFICIENT, 0.40, "mandate debit failed with no reason given"
+    if ctx.error_step == "authentication":
+        return RootCause.AUTHENTICATION_FAILED, 0.45, "failed at the authentication step"
+    if ctx.error_source == "issuer":
+        return RootCause.INSUFFICIENT_FUNDS, 0.30, "issuer-side decline, no reason given; balance is the modal cause"
+    return RootCause.UNKNOWN, 0.20, "no diagnostic signal in the failure"
+
+
+_UNRECOVERABLE = {
+    RootCause.RISK_DECLINED,
+    RootCause.CARD_EXPIRED_OR_INVALID,
+    RootCause.INVOICE_DISPUTED,
+}
 
 
 class RulesOnly:
-    """Keyword classification into the taxonomy, then the matching playbook."""
+    """Classification into the taxonomy, then the matching playbook."""
 
     name = "rules_only"
 
     def diagnose(self, ctx: StrategyContext) -> Diagnosis:
         text = f"{ctx.error_description} {ctx.error_code}".lower()
+
+        coded = _iso_code(text)
+        if coded is not None:
+            cause, confidence = coded
+            return self._diagnosis(cause, confidence,
+                                   ["issuer response code quoted in the failure text"],
+                                   "iso 8583 response code")
+
         for needles, cause, confidence in KEYWORD_RULES:
             if any(n in text for n in needles):
-                return Diagnosis(
-                    root_cause=cause,
-                    confidence=confidence,
-                    evidence=[f"matched {needles[0]!r} in the gateway error text"],
-                    recoverable=cause not in {RootCause.RISK_DECLINED,
-                                              RootCause.CARD_EXPIRED_OR_INVALID,
-                                              RootCause.INVOICE_DISPUTED},
-                    recommended_horizon_hours=72,
-                    notes="keyword classifier",
+                return self._diagnosis(
+                    cause, confidence,
+                    [f"matched {next(n for n in needles if n in text)!r} in the failure text"],
+                    "keyword classifier",
                 )
-        # No rule matched. Degrade to caution, not to a guess.
-        fallback = {
-            Surface.MANDATE: RootCause.MANDATE_INSUFFICIENT,
-            Surface.RECEIVABLE: RootCause.INVOICE_FORGOTTEN,
-        }.get(ctx.surface, RootCause.UNKNOWN)
+
+        cause, confidence, why = _from_context(ctx)
+        return self._diagnosis(cause, confidence, [why], "context fallback, no text match")
+
+    def _diagnosis(
+        self, cause: RootCause, confidence: float, evidence: list[str], notes: str
+    ) -> Diagnosis:
         return Diagnosis(
-            root_cause=fallback, confidence=0.25, evidence=["no keyword rule matched"],
-            recoverable=True, recommended_horizon_hours=24,
-            notes="unmatched error text; conservative fallback",
+            root_cause=cause,
+            confidence=confidence,
+            evidence=evidence,
+            recoverable=cause not in _UNRECOVERABLE,
+            recommended_horizon_hours=72,
+            notes=notes,
         )
 
     def next_action(self, ctx: StrategyContext) -> ProposedAction | None:

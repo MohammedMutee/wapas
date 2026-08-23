@@ -28,6 +28,7 @@ from ..audit.chain import canonical_json
 from ..domain import (
     ALWAYS_ALLOWED,
     CONTACT_ACTIONS,
+    NEVER_RETRY,
     Arm,
     AttributionMethod,
     Channel,
@@ -193,6 +194,15 @@ class EpisodeResult:
     complained: bool = False
     disputed: bool = False
     escalated: bool = False
+    forbidden_retries: int = 0
+    """Retries executed on an episode whose *true* cause is never-retryable.
+
+    Measured against ground truth, never acted on. The policy gate can only
+    refuse a retry for a cause someone identified, so this counts the harm that
+    a misdiagnosis lets through — the cost of being wrong, in the currency that
+    matters. It is the number an improved diagnoser has to drive down, and it
+    is reported per arm rather than kept quiet.
+    """
     self_recovered: bool = False
     """True when the payment arrived without any attributable action."""
     true_cause: RootCause | None = None
@@ -424,6 +434,12 @@ class EpisodeRunner:
 
         if action.tool is Tool.RETRY_PAYMENT:
             result.retries += 1
+            if ep.true_cause in NEVER_RETRY:
+                result.forbidden_retries += 1
+                self._book_externality(
+                    result, ep, now, "forbidden_retry",
+                    self.costs.externalities.forbidden_retry_paise,
+                )
         if is_contact:
             result.contacts_made += 1
             self._charge(result, channel, ep, now)

@@ -327,7 +327,7 @@ def _render(args, strat: Tally, simple: Tally, conditional: tuple[int, int, int]
     if abs(gain) < 0.02:
         A(f"**The gain is {gain:+.1%} — that is, there isn't one.** Worth stating plainly")
         A("rather than quietly dropping the table. Amounts here are heavy-tailed but the")
-        A("arms are large, and at 750–2,000 episodes simple randomisation already")
+        A("arms are large, and at 750 to 2,000 episodes simple randomisation already")
         A("balances the deciles well enough that removing the residual imbalance changes")
         A("nothing measurable.")
         A("")

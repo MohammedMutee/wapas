@@ -75,6 +75,7 @@ class ArmSummary:
     opt_outs: int = 0
     complaints: int = 0
     disputes: int = 0
+    forbidden_retries: int = 0
     denials: int = 0
     modifications: int = 0
     escalations: int = 0
@@ -117,6 +118,7 @@ def summarise(results: list[EpisodeResult]) -> dict[Arm, ArmSummary]:
         s.opt_outs += 1 if r.opted_out else 0
         s.complaints += 1 if r.complained else 0
         s.disputes += 1 if r.disputed else 0
+        s.forbidden_retries += r.forbidden_retries
         s.denials += r.denials
         s.modifications += r.modifications
         s.escalations += 1 if r.escalated else 0
@@ -454,6 +456,13 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
 
     A("## Diagnosis accuracy")
     A("")
+    A("Against the simulator's ground truth. Since `sim/signals.py` started emitting")
+    A("realistic error text — several phrasings per cause, ISO 8583 response codes,")
+    A(f"and {params.signal_noise.uninformative_share:.0%} of failures carrying no")
+    A("diagnostic text at all — this is a judgement call rather than a lookup. The")
+    A("ceiling from text alone is roughly the informative share; anything above it has")
+    A("to come from context.")
+    A("")
     A("| Arm | classified | correct | accuracy |")
     A("|---|---|---|---|")
     for arm, s in summaries.items():
@@ -461,6 +470,45 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A(f"| `{arm}` | {s.diagnosed} | {s.diagnosed_correct} | "
               f"{s.diagnosed_correct / s.diagnosed:.1%} |")
     A("")
+
+    A("## Harm")
+    A("")
+    A("What each strategy costs the people on the other end. **Forbidden retries** are")
+    A("attempts against an episode whose *true* cause is never-retryable — a dead card,")
+    A("a risk decline, a revoked mandate. The gate can only refuse a retry for a cause")
+    A("somebody identified, so this is the price of a wrong diagnosis, and it is the")
+    A("number a better diagnoser has to drive down.")
+    A("")
+    A("| Arm | Forbidden retries / 1,000 ep | Opt-outs / 1,000 ep | Complaints / 1,000 ep | "
+      "Disputes / 1,000 ep |")
+    A("|---|---|---|---|---|")
+    for arm in (Arm.TREATMENT, Arm.BASELINE_RULES, Arm.BASELINE_NAIVE,
+                Arm.BASELINE_BLAST, Arm.CONTROL):
+        s = summaries.get(arm)
+        if not s:
+            continue
+        k = 1000 / max(1, s.n)
+        A(f"| `{arm}` | {s.forbidden_retries * k:.1f} | {s.opt_outs * k:.1f} | "
+          f"{s.complaints * k:.1f} | {s.disputes * k:.1f} |")
+    A("")
+    naive = summaries.get(Arm.BASELINE_NAIVE)
+    if naive and naive.n:
+        ratio = (naive.forbidden_retries / naive.n) / max(
+            1e-9, treat.forbidden_retries / max(1, treat.n)
+        )
+        A("`baseline_naive` does not diagnose at all, so it retries dead cards, risk")
+        A(f"declines and revoked mandates indiscriminately — **{ratio:.0f}x** the rate of the")
+        A("diagnosing arm. That is the harm the diagnosis step exists to prevent.")
+        A("")
+        A("**And it still wins on money.** A forbidden retry is priced in")
+        A("`config/rates.yaml` as amortised exposure to card-network decline-rate")
+        A("monitoring, and at that price it does not come close to closing the gap. The")
+        A("honest conclusion is that the case against the fixed ladder is a **compliance**")
+        A("case, not a revenue case: it recovers more rupees, and it does so by doing")
+        A("things a payments team would be unable to defend to an acquirer. Pricing the")
+        A("penalty high enough to reverse the ranking would be fabrication, so the")
+        A("ranking stands as measured and the argument is made on its actual grounds.")
+        A("")
 
     A("## Terminal states — the stopping rules, exercised")
     A("")

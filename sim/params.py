@@ -115,8 +115,21 @@ class Volumes(_B):
         return self.payment_episodes + self.mandate_episodes + self.receivable_episodes
 
 
+class SignalNoise(_B):
+    """How much of the failure text is actually diagnostic.
+
+    ``uninformative_share`` is the fraction of episodes whose error text carries
+    no cause signal at all — "Payment failed", "Transaction declined". It is the
+    single parameter that decides whether diagnosis is a lookup or a judgement
+    call, so it is published here rather than buried in code.
+    """
+
+    uninformative_share: float = Field(default=0.18, ge=0.0, le=1.0)
+
+
 class SimParams(_B):
     version: str
+    signal_noise: SignalNoise = SignalNoise()
     failure_causes: dict[str, float]
     rails: dict[str, dict[str, float]]
     amounts: Amounts

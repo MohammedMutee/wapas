@@ -12,7 +12,19 @@
 # for us. The sensitivity sweep perturbs all of them by ±30% and reports
 # whether the agent still beats the baseline across the range.
 # ─────────────────────────────────────────────────────────────────────────────
-version: "sim/2"
+version: "sim/3"
+
+# ── How legible is the failure? ──────────────────────────────────────────────
+# See sim/signals.py. Each cause now presents one of several realistic
+# phrasings — including ISO 8583 response codes and wordings whose surface
+# reading points at the wrong cause — and this share of episodes comes back
+# with no diagnostic text whatsoever.
+#
+# Raising this makes our own diagnosis accuracy worse and the rules baseline
+# worse with it. That is the point: a benchmark containing only the legible
+# cases is not measuring diagnosis, it is measuring string equality.
+signal_noise:
+  uninformative_share: 0.18
 
 # ── Surface A: failed payments ───────────────────────────────────────────────
 failure_causes:

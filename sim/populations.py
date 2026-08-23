@@ -19,6 +19,7 @@ from wapas.money import Paise, rupees_to_paise
 
 from .params import SimParams
 from .rng import Rng
+from .signals import draw_signal
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,8 +101,10 @@ class Population:
         return any(start <= moment < end for start, end in self.outages)
 
 
-# Error strings a real gateway would emit. The diagnosis step reads these, so
-# they must be realistic — including the ambiguous ones.
+# Superseded by ``sim.signals``. Kept as the canonical, unambiguous phrasing of
+# each cause — useful in tests and in documentation — but no longer what
+# episodes present, because one fixed string per cause turned diagnosis into a
+# lookup table. See ``sim/signals.py`` for why that mattered.
 ERROR_TEMPLATES: dict[RootCause, tuple[str, str, str, str]] = {
     RootCause.INSUFFICIENT_FUNDS: (
         "BAD_REQUEST_ERROR",
@@ -255,7 +258,10 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             )
             down_until = end
 
-        code, desc, source, step = ERROR_TEMPLATES[cause]
+        signal = draw_signal(r.child("signal"), cause,
+                             uninformative_share=params.signal_noise.uninformative_share)
+        code, desc, source, step = (signal.code, signal.description,
+                                    signal.source, signal.step)
         sr = r.child("selfrec")
         self_recovers = sr.chance(consumer.self_recovery_rate) and cause not in {
             RootCause.RISK_DECLINED, RootCause.CARD_EXPIRED_OR_INVALID,
@@ -280,7 +286,10 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
         pop.consumers.append(consumer)
         cause = (RootCause.MANDATE_REVOKED if r.child("cause").chance(0.3)
                  else RootCause.MANDATE_INSUFFICIENT)
-        code, desc, source, step = ERROR_TEMPLATES[cause]
+        signal = draw_signal(r.child("signal"), cause,
+                             uninformative_share=params.signal_noise.uninformative_share)
+        code, desc, source, step = (signal.code, signal.description,
+                                    signal.source, signal.step)
         occurred = start + _dt.timedelta(minutes=r.child("when").uniform(0, horizon_min))
         sr = r.child("selfrec")
         self_recovers = cause is RootCause.MANDATE_INSUFFICIENT and sr.chance(
@@ -305,7 +314,10 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
         buyer = _make_buyer(r.child("traits"), params, f"biz_{i:05d}")
         pop.buyers.append(buyer)
         cause = B2B_PERSONA_CAUSE[buyer.persona]
-        code, desc, source, step = ERROR_TEMPLATES[cause]
+        signal = draw_signal(r.child("signal"), cause,
+                             uninformative_share=params.signal_noise.uninformative_share)
+        code, desc, source, step = (signal.code, signal.description,
+                                    signal.source, signal.step)
         occurred = start + _dt.timedelta(minutes=r.child("when").uniform(0, horizon_min))
         sr = r.child("selfrec")
         self_recovers = buyer.persona != "ghost" and sr.chance(buyer.self_recovery_rate)

@@ -139,10 +139,34 @@ def test_opt_outs_are_priced_and_kept_separate(world):
         assert r.net_after_externalities_paise < r.net_paise
 
     for r in results:
-        if not (r.opted_out or r.complained or r.disputed):
-            assert r.externality_paise == 0
+        if not (r.opted_out or r.complained or r.disputed or r.forbidden_retries):
+            assert r.externality_paise == 0, "an externality was booked with no cause"
         # Channel spend stays small; externalities must never be folded into it.
         assert r.cost_paise < 10_000
+
+
+def test_a_forbidden_retry_is_counted_and_priced(world):
+    """A retry against a never-retryable true cause must show up as harm.
+
+    Measured against ground truth and never acted on: the gate can only refuse
+    a retry for a cause somebody identified, so this is the price of being
+    wrong. If a change makes diagnosis worse, this number moves and the report
+    says so.
+    """
+    params, pop = world
+    runner = make_runner(params)
+    from wapas.domain import NEVER_RETRY
+    from wapas.strategies import NaiveRetry as _Naive
+
+    never = [e for e in pop.episodes[:800] if e.true_cause in NEVER_RETRY]
+    assert never
+    blind = [runner.run(ep, Arm.BASELINE_NAIVE, _Naive()) for ep in never]
+    assert sum(r.forbidden_retries for r in blind) > 0, (
+        "a strategy that never diagnoses must trip this counter"
+    )
+    for r in blind:
+        if r.forbidden_retries:
+            assert r.externality_paise > 0
 
 
 def test_the_externality_scales_with_the_amount_at_risk():

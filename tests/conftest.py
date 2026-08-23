@@ -16,7 +16,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT))  # sim/ and eval/ are top-level, not packaged
 
-from wapas.clock import IST, VirtualClock
+from wapas.clock import IST, VirtualClock  # noqa: E402  (needs sys.path above)
 
 RUN_START = _dt.datetime(2026, 9, 1, 10, 30, tzinfo=IST)
 

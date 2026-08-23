@@ -59,6 +59,7 @@ class Externalities:
     contactability_loss: Decimal
     complaint_paise: Paise
     dispute_paise: Paise
+    forbidden_retry_paise: Paise
 
     def opt_out_cost(self, amount: Paise, *, is_business: bool) -> Paise:
         """Forgone future recovery from losing a contactable customer.
@@ -128,6 +129,9 @@ class CostBook:
                 recoverable_share=Decimal(str(opt.get("recoverable_share", 0))),
                 contactability_loss=Decimal(str(opt.get("contactability_loss", 0))),
                 complaint_paise=Paise(int((ext.get("complaint") or {}).get("handling_paise", 0))),
+                forbidden_retry_paise=Paise(
+                    int((ext.get("forbidden_retry") or {}).get("penalty_paise", 0))
+                ),
                 dispute_paise=Paise(int((ext.get("dispute") or {}).get("handling_paise", 0))),
             ),
         )

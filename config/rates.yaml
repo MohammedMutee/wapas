@@ -75,6 +75,18 @@ externalities:
       contactability_loss. Using this episode's amount as the proxy for the
       customer's future ticket size is a simplification; it is the best
       estimate available at the moment the opt-out happens.
+  forbidden_retry:
+    # Re-presenting a payment that hard-declined — a dead card, a risk decline,
+    # a revoked mandate. Razorpay does not bill for a failed attempt, so this is
+    # not a gateway fee; it is amortised exposure to card-network decline-rate
+    # monitoring and, for e-NACH, to mandate rules.
+    #
+    # Deliberately modest. A figure large enough to flip the comparison against
+    # the fixed-ladder baseline would be fabrication, and the report says
+    # explicitly that it does not flip it. The argument against retrying a dead
+    # card is a compliance argument, not a revenue one, and dressing it up as a
+    # revenue one would be the weaker position.
+    penalty_paise: 2000
   complaint:
     # Support handling, and the regulatory tail of a TRAI/DND complaint.
     handling_paise: 25000
