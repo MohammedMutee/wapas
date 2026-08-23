@@ -570,3 +570,34 @@ So the question "does the model earn its cost?" is not answered here and is not
 going to be answered by a bigger bake-off. It is answered by the treatment arm
 classifying two thousand episodes in `results/report.md`, split by whether the
 question was answerable. Selection is what this file is for. Proof is not.
+
+---
+
+### D28 · Caution is not the same as inaction
+**2026-08-23**
+
+D16 established that `unknown` is retryable: a bounded retry of an
+already-authorised payment is the least risky money action available, and it is
+capped by `max_retries` and `min_gap_between_retries_hours`. The policy said
+so. The `unknown` playbook then sent one email and closed the episode.
+
+So the stance and the planner disagreed, and the planner won — which is the
+only outcome that ever happens when a principle lives in a comment and its
+opposite lives in a data structure.
+
+It went unnoticed while `unknown` was rare. Since `sim/signals.py` started
+emitting realistic text, 18% of failures carry no diagnostic signal at all, so
+`unknown` is now a common and frequently *correct* answer rather than an
+occasional admission of defeat. A planner that closes on it throws away every
+genuinely uncertain episode — and, worse, it **punishes an honest classifier
+relative to one that guesses confidently**, which is precisely the incentive
+this project spent D24 trying to remove from the model.
+
+The playbook now notifies, retries twice within the policy cap, then closes.
+Caution stays where harm is possible — concessions, escalation, repeated
+contact — and comes off the one action that cannot hurt anyone.
+
+Effect on the rules-only arm: recovery 52.2% → 58.9%, and it is no longer
+significantly behind the fixed-ladder baseline (p 0.038 → 0.087 on rupees,
+0.013 → 0.158 on recovery rate). It applies identically to every arm that
+diagnoses, so it changes the level rather than the comparison.

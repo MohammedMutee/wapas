@@ -174,11 +174,31 @@ PLAYBOOKS: dict[RootCause, Playbook] = {
                      rationale="Dispute raised: route to a human, stop collections"),
     )),
 
-    # Uncertainty degrades to caution, never to guessing.
+    # Uncertainty degrades to caution, never to guessing — but caution is not
+    # the same as inaction, and this playbook had them confused.
+    #
+    # D16 established that `unknown` is retryable: a bounded retry of an
+    # already-authorised payment is the least risky money action available, and
+    # it is capped by max_retries and min_gap. The policy said so; this playbook
+    # then never retried, so the stance and the planner disagreed and the
+    # planner won. Caution belongs on the actions that can harm someone —
+    # concessions, escalation, repeated contact — not on the one that cannot.
+    #
+    # This matters more since diagnosis got hard: 18% of failures carry no
+    # diagnostic text, so `unknown` is now a common and often *correct* answer
+    # rather than a rare admission of defeat. A planner that closes the episode
+    # on it throws away every genuinely uncertain case, and it punishes an
+    # honest classifier relative to one that guesses confidently.
     RootCause.UNKNOWN: Playbook("conservative_v1", (
         PlaybookStep(Tool.SEND_MESSAGE, 4 * H, Channel.EMAIL, rung=1,
-                     rationale="Cause unclear: one informational notice, no money actions"),
-        PlaybookStep(Tool.CLOSE_EPISODE, 3 * D, rationale="Do not guess with money"),
+                     rationale="Cause unclear: one informational notice"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 1 * D,
+                     rationale="Bounded retry: the least risky money action, and the "
+                               "gate still blocks it if the cause turns out non-retryable"),
+        PlaybookStep(Tool.RETRY_PAYMENT, 3 * D,
+                     rationale="Second and final attempt across a liquidity cycle"),
+        PlaybookStep(Tool.CLOSE_EPISODE, 5 * D,
+                     rationale="Do not guess with concessions or escalation"),
     )),
 }
 

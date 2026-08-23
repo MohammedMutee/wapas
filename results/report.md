@@ -13,17 +13,17 @@ Seed `20260901` · episodes `5000` · policy `contact/3+money/4+escalation/3` ·
 | Metric | Value |
 |---|---|
 | Total revenue at risk | ₹1,16,43,570.53 |
-| Gross recovered (treatment) | ₹22,67,035.36 |
+| Gross recovered (treatment) | ₹23,51,758.86 |
 | Control arm, untreated, scaled to treatment size | ₹5,36,526.77 |
-| **Incremental recovery** | **₹17,30,508.58** (95% CI [₹14,27,696.03, ₹20,50,796.35], p = 0.0001) |
+| **Incremental recovery** | **₹18,15,232.08** (95% CI [₹15,07,297.41, ₹21,40,334.93], p = 0.0001) |
 | Realised cost of treatment | ₹391.75 |
-| **Net incremental recovery** | **₹17,30,116.83** |
-| Modelled externalities (opt-outs, complaints, disputes) | less ₹2,89,005.98 |
-| **Net after externalities** | **₹14,41,110.85** |
+| **Net incremental recovery** | **₹18,14,840.33** |
+| Modelled externalities (opt-outs, complaints, disputes) | less ₹2,89,965.98 |
+| **Net after externalities** | **₹15,24,874.35** |
 | Cost per ₹100 recovered | ₹0.02 |
 | Policy denials (actions blocked before execution) | 21 |
 | Policy modifications (rescheduled, not dropped) | 764 |
-| Audit chain | chain intact: 39533 entries verified |
+| Audit chain | chain intact: 40160 entries verified |
 
 The control arm is the whole point. It recovered 14.9% of its episodes **without any intervention at all**. Reporting gross recovery would have claimed credit for every one of them.
 
@@ -57,8 +57,8 @@ columns are the ones to read.
 
 | Arm | n | Recovery rate | Gross / ep | Net / ep | Net after ext. / ep | Contacts / ep | Opt-out rate | Complaints |
 |---|---|---|---|---|---|---|---|---|
-| `treatment` | 2000 | 56.6% | ₹1,133.51 | ₹1,133.32 | ₹988.81 | 0.83 | 5.3% | 26 |
-| `baseline_rules` | 750 | 58.9% | ₹1,015.03 | ₹1,014.83 | ₹711.96 | 0.85 | 5.7% | 12 |
+| `treatment` | 2000 | 58.9% | ₹1,175.87 | ₹1,175.68 | ₹1,030.70 | 0.83 | 5.3% | 26 |
+| `baseline_rules` | 750 | 61.1% | ₹1,031.93 | ₹1,031.73 | ₹728.33 | 0.85 | 5.7% | 12 |
 | `baseline_naive` | 750 | 61.9% | ₹1,380.48 | ₹1,380.47 | ₹1,296.37 | 0.50 | 2.3% | 8 |
 | `baseline_blast` | 750 | 55.3% | ₹1,037.01 | ₹1,036.66 | ₹835.71 | 1.00 | 6.1% | 11 |
 | `control` | 750 | 14.9% | ₹268.26 | ₹268.26 | ₹268.26 | 0.00 | 0.0% | 0 |
@@ -71,10 +71,10 @@ smaller arm.
 
 | Compared with | n | Δ gross / 1,000 ep | 95% CI | p | Claim supported? |
 |---|---|---|---|---|---|
-| `control` | 750 | ₹8,65,254.29 | [₹7,13,848.01, ₹10,25,398.17] | 0.0001 | yes |
-| `baseline_naive` | 750 | -₹2,46,964.02 | [-₹5,55,026.83, ₹38,058.88] | 0.0379 | worse |
-| `baseline_blast` | 750 | ₹96,498.94 | [-₹1,42,690.26, ₹3,24,059.26] | 0.3992 | no — indistinguishable from noise |
-| `baseline_rules` | 750 | ₹1,18,486.57 | [-₹92,224.01, ₹3,25,888.61] | 0.2868 | no — indistinguishable from noise  ← **A/A, see below** |
+| `control` | 750 | ₹9,07,616.04 | [₹7,53,648.70, ₹10,70,167.46] | 0.0001 | yes |
+| `baseline_naive` | 750 | -₹2,04,602.27 | [-₹5,13,848.87, ₹80,891.99] | 0.0873 | no — indistinguishable from noise |
+| `baseline_blast` | 750 | ₹1,38,860.69 | [-₹1,01,875.99, ₹3,70,441.55] | 0.2172 | no — indistinguishable from noise |
+| `baseline_rules` | 750 | ₹1,43,946.34 | [-₹69,187.90, ₹3,53,467.28] | 0.1932 | no — indistinguishable from noise  ← **A/A, see below** |
 
 #### The same comparison on recovery rate
 
@@ -85,10 +85,10 @@ chosen after seeing the answer.
 
 | Compared with | Δ recovery rate (pp) | 95% CI | p | Claim supported? |
 |---|---|---|---|---|
-| `control` | +41.72 | [+38.38, +45.00] | 0.0001 | yes |
-| `baseline_naive` | -5.22 | [-9.32, -1.17] | 0.0133 | worse |
-| `baseline_blast` | +1.32 | [-2.80, +5.48] | 0.5431 | no — indistinguishable from noise |
-| `baseline_rules` | -2.28 | [-6.45, +1.82] | 0.2952 | no — indistinguishable from noise |
+| `control` | +43.92 | [+40.58, +47.18] | 0.0001 | yes |
+| `baseline_naive` | -3.02 | [-7.12, +1.02] | 0.1575 | no — indistinguishable from noise |
+| `baseline_blast` | +3.52 | [-0.58, +7.68] | 0.0958 | no — indistinguishable from noise |
+| `baseline_rules` | -2.22 | [-6.33, +1.85] | 0.2938 | no — indistinguishable from noise |
 
 #### Null controls — read these before believing any row above
 
@@ -98,14 +98,14 @@ construction, so this measures what the harness reports when there is nothing
 to report. It stays valid after the LLM lands, which the
 `treatment` vs `baseline_rules` row will not.
 
-> Δ = -₹1,68,731.87 per 1,000 episodes, 95% CI [-₹4,56,460.09, ₹82,927.43], p = 0.1687 — correctly not significant
+> Δ = -₹1,69,783.77 per 1,000 episodes, 95% CI [-₹4,58,721.24, ₹84,233.71], p = 0.1666 — correctly not significant
 
-The noise floor for a comparison of this size is roughly ±₹4,56,460.09 per 1,000
+The noise floor for a comparison of this size is roughly ±₹4,58,721.24 per 1,000
 episodes. A difference smaller than that is not a difference.
 
-On recovery rate the same placebo gives -1.10 pp, p = 0.6584 — correctly not significant.
+On recovery rate the same placebo gives -2.10 pp, p = 0.3720 — correctly not significant.
 
-**Second A/A.** `treatment` and `baseline_rules` also run the same strategy today: p = 0.2868 — correctly not significant.
+**Second A/A.** `treatment` and `baseline_rules` also run the same strategy today: p = 0.1932 — correctly not significant.
 
 One seed cannot establish a false-positive *rate*. `make calibrate` runs the
 placebo across many seeds and reports the measured rate against the nominal 5%;
@@ -113,7 +113,7 @@ see `results/calibration.md`.
 
 ### The aggression trade
 
-`baseline_blast` recovers 55.3% of episodes against treatment's 56.6%, using 1.00 contacts per episode against 0.83, and produces an opt-out rate of 6.1% against 5.3%.
+`baseline_blast` recovers 55.3% of episodes against treatment's 58.9%, using 1.00 contacts per episode against 0.83, and produces an opt-out rate of 6.1% against 5.3%.
 
 Channel spend cannot settle this argument. An SMS costs 12 paise and a
 recovered invoice is worth thousands of rupees, so on a spend-only ledger the
@@ -123,12 +123,12 @@ priced — see `externalities` in `config/rates.yaml`.
 
 | Arm | Gross / ep | Realised cost / ep | Externalities / ep | Net after ext. / ep |
 |---|---|---|---|---|
-| `treatment` | ₹1,133.51 | ₹0.19 | ₹144.50 | ₹988.81 |
+| `treatment` | ₹1,175.87 | ₹0.19 | ₹144.98 | ₹1,030.70 |
 | `baseline_blast` | ₹1,037.01 | ₹0.34 | ₹200.95 | ₹835.71 |
 | `baseline_naive` | ₹1,380.48 | ₹0.00 | ₹84.09 | ₹1,296.37 |
-| `baseline_rules` | ₹1,015.03 | ₹0.19 | ₹302.87 | ₹711.96 |
+| `baseline_rules` | ₹1,031.93 | ₹0.19 | ₹303.40 | ₹728.33 |
 
-Treatment against blast on **net after externalities**: ₹1,53,105.54 per 1,000 episodes, 95% CI [-₹1,22,683.45, ₹4,22,465.09], p = 0.2549 — no — indistinguishable from noise.
+Treatment against blast on **net after externalities**: ₹1,94,987.29 per 1,000 episodes, 95% CI [-₹80,929.59, ₹4,62,943.49], p = 0.1407 — no — indistinguishable from noise.
 
 **The externality figures are assumptions, not measurements**, and they are
 the most contestable numbers in this project. They are reported on their own
@@ -166,14 +166,14 @@ number a better diagnoser has to drive down.
 
 | Arm | Forbidden retries / 1,000 ep | Opt-outs / 1,000 ep | Complaints / 1,000 ep | Disputes / 1,000 ep |
 |---|---|---|---|---|
-| `treatment` | 21.0 | 53.5 | 13.0 | 2.0 |
-| `baseline_rules` | 21.3 | 57.3 | 16.0 | 5.3 |
+| `treatment` | 45.0 | 53.5 | 13.0 | 2.0 |
+| `baseline_rules` | 48.0 | 57.3 | 16.0 | 5.3 |
 | `baseline_naive` | 965.3 | 22.7 | 10.7 | 2.7 |
 | `baseline_blast` | 453.3 | 61.3 | 14.7 | 6.7 |
 | `control` | 0.0 | 0.0 | 0.0 | 0.0 |
 
 `baseline_naive` does not diagnose at all, so it retries dead cards, risk
-declines and revoked mandates indiscriminately — **46x** the rate of the
+declines and revoked mandates indiscriminately — **21x** the rate of the
 diagnosing arm. That is the harm the diagnosis step exists to prevent.
 
 **And it still wins on money.** A forbidden retry is priced in
@@ -192,21 +192,21 @@ ranking stands as measured and the argument is made on its actual grounds.
 | `escalated` | 130 | 0 | 0 | 0 |
 | `exhausted` | 410 | 268 | 291 | 0 |
 | `partially_recovered` | 21 | 4 | 18 | 0 |
-| `recovered` | 1112 | 460 | 397 | 112 |
+| `recovered` | 1156 | 460 | 397 | 112 |
 | `skipped_negative_ev` | 0 | 0 | 0 | 638 |
 | `suppressed` | 102 | 18 | 44 | 0 |
-| `unrecoverable` | 225 | 0 | 0 | 0 |
+| `unrecoverable` | 181 | 0 | 0 | 0 |
 
 ## Per-cause recovery (treatment)
 
 | Root cause | n | recovered | rate | gross |
 |---|---|---|---|---|
-| `insufficient_funds` | 375 | 218 | 58.1% | ₹3.01L |
+| `insufficient_funds` | 375 | 231 | 61.6% | ₹3.40L |
 | `mandate_insufficient` | 296 | 162 | 54.7% | ₹1.81L |
-| `authentication_failed` | 244 | 147 | 60.2% | ₹2.35L |
+| `authentication_failed` | 244 | 150 | 61.5% | ₹2.41L |
 | `invoice_forgotten` | 207 | 149 | 72.0% | ₹6.47L |
-| `issuer_down` | 172 | 148 | 86.0% | ₹2.55L |
-| `technical_timeout` | 118 | 75 | 63.6% | ₹88.5K |
+| `issuer_down` | 172 | 169 | 98.3% | ₹2.92L |
+| `technical_timeout` | 118 | 82 | 69.5% | ₹91.9K |
 | `mandate_revoked` | 116 | 58 | 50.0% | ₹78.3K |
 | `invoice_cash_crunch` | 97 | 56 | 57.7% | ₹1.60L |
 | `card_expired_or_invalid` | 91 | 42 | 46.2% | ₹66.2K |
