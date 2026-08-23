@@ -525,12 +525,28 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
     A("ceiling from text alone is roughly the informative share; anything above it has")
     A("to come from context.")
     A("")
-    A("| Arm | classified | correct | accuracy |")
-    A("|---|---|---|---|")
-    for arm, s in summaries.items():
-        if s.diagnosed:
-            A(f"| `{arm}` | {s.diagnosed} | {s.diagnosed_correct} | "
-              f"{s.diagnosed_correct / s.diagnosed:.1%} |")
+    A("| Arm | classified | correct | accuracy | on informative text | on uninformative |")
+    A("|---|---|---|---|---|---|")
+    for arm in (Arm.TREATMENT, Arm.BASELINE_RULES):
+        rs = [r for r in by_arm.get(arm, []) if r.diagnosis_correct is not None]
+        if not rs:
+            continue
+        clear = [r for r in rs if r.signal_informative]
+        murky = [r for r in rs if not r.signal_informative]
+
+        def pct(group):
+            return (f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%} "
+                    f"(n={len(group)})") if group else "—"
+
+        correct = sum(1 for r in rs if r.diagnosis_correct)
+        A(f"| `{arm}` | {len(rs)} | {correct} | {correct / len(rs):.1%} | "
+          f"{pct(clear)} | {pct(murky)} |")
+    A("")
+    A("The split is the interesting column. On text that names a mechanism, a keyword")
+    A("table with the ISO 8583 codes in it is very hard to beat and a model has almost")
+    A("nothing to add. The case for a model rests entirely on the right-hand column —")
+    A("the failures where the answer has to be assembled from weak context rather than")
+    A("looked up — and on that column being a large enough share of reality to matter.")
     A("")
 
     if diagnoser is not None:

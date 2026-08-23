@@ -207,6 +207,10 @@ class EpisodeResult:
     """True when the payment arrived without any attributable action."""
     true_cause: RootCause | None = None
     diagnosed_cause: RootCause | None = None
+    signal_informative: bool = True
+    """Whether the failure text could identify the cause. For reporting only:
+    it splits diagnosis accuracy into the questions that were answerable and
+    the ones that were not."""
     time_to_recovery: _dt.timedelta | None = None
     terminal_reason: str = ""
     audit_entries: int = 0
@@ -266,6 +270,7 @@ class EpisodeRunner:
         result = EpisodeResult(
             ref=ep.ref, arm=arm, surface=str(ep.surface), state=EpisodeState.INGESTED,
             amount_paise=ep.amount_paise, true_cause=ep.true_cause,
+            signal_informative=getattr(ep, "signal_informative", True),
         )
         now = ep.occurred_at
         # Two distinct windows, and conflating them is how a control arm ends up

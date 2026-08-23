@@ -84,6 +84,13 @@ class SeededEpisode:
     would_self_recover: bool
     self_recovery_at: _dt.datetime | None
     seed: int
+    signal_informative: bool = True
+    """Whether the error text can identify the cause at all.
+
+    Ground truth about the *task*, not about the answer. Recorded so the report
+    can split diagnosis accuracy by whether the question was answerable, which
+    is the only place a model can be expected to beat a keyword table. No
+    strategy ever sees it."""
 
 
 @dataclass
@@ -271,7 +278,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             amount_paise=_amount(r.child("amt"), params), true_cause=cause,
             rail=_rail_for(r.child("rail"), params, cause), occurred_at=occurred,
             error_code=code, error_description=desc, error_source=source, error_step=step,
-            issuer_down_until=down_until,
+            issuer_down_until=down_until, signal_informative=signal.informative,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(hours=sr.uniform(2, 120)) if self_recovers else None
@@ -301,6 +308,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             rail="emandate" if r.child("rail").chance(0.5) else "upi",
             occurred_at=occurred, error_code=code, error_description=desc,
             error_source=source, error_step=step, issuer_down_until=None,
+            signal_informative=signal.informative,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(days=sr.uniform(1, 20)) if self_recovers else None
@@ -326,7 +334,7 @@ def build_population(params: SimParams, *, run_seed: int, start: _dt.datetime) -
             amount_paise=_amount(r.child("amt"), params) * 4,
             true_cause=cause, rail="bank_transfer", occurred_at=occurred,
             error_code=code, error_description=desc, error_source=source, error_step=step,
-            issuer_down_until=None,
+            issuer_down_until=None, signal_informative=signal.informative,
             would_self_recover=self_recovers,
             self_recovery_at=(
                 occurred + _dt.timedelta(days=sr.uniform(2, 45)) if self_recovers else None

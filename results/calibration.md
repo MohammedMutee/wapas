@@ -12,14 +12,14 @@ that it is high.
 
 | Design | Test | Rejections | Rate | |
 |---|---|---|---|---|
-| `stratified` | permutation, rupees | 20/300 | 6.7% | consistent with 5% (p = 0.119) |
-| `stratified` | permutation, recovery rate | 20/300 | 6.7% | consistent with 5% (p = 0.119) |
+| `stratified` | permutation, rupees | 21/300 | 7.0% | consistent with 5% (p = 0.078) |
+| `stratified` | permutation, recovery rate | 16/300 | 5.3% | consistent with 5% (p = 0.432) |
 | `stratified` | bootstrap CI excludes 0, rupees | 12/300 | 4.0% | consistent with 5% (p = 0.822) |
-| `stratified` | bootstrap CI excludes 0, rate | 21/300 | 7.0% | consistent with 5% (p = 0.078) |
-| `simple` | permutation, rupees | 20/300 | 6.7% | consistent with 5% (p = 0.119) |
-| `simple` | permutation, recovery rate | 13/300 | 4.3% | consistent with 5% (p = 0.739) |
-| `simple` | bootstrap CI excludes 0, rupees | 21/300 | 7.0% | consistent with 5% (p = 0.078) |
-| `simple` | bootstrap CI excludes 0, rate | 12/300 | 4.0% | consistent with 5% (p = 0.822) |
+| `stratified` | bootstrap CI excludes 0, rate | 16/300 | 5.3% | consistent with 5% (p = 0.432) |
+| `simple` | permutation, rupees | 15/300 | 5.0% | consistent with 5% (p = 0.537) |
+| `simple` | permutation, recovery rate | 15/300 | 5.0% | consistent with 5% (p = 0.537) |
+| `simple` | bootstrap CI excludes 0, rupees | 20/300 | 6.7% | consistent with 5% (p = 0.119) |
+| `simple` | bootstrap CI excludes 0, rate | 17/300 | 5.7% | consistent with 5% (p = 0.333) |
 
 ## 2. Is the test itself exact? One world, many splits
 
@@ -30,19 +30,25 @@ seed-to-seed luck.
 
 | Test | Rejections | Rate | |
 |---|---|---|---|
-| permutation, rupees | 17/400 | 4.2% | consistent with 5% (p = 0.786) |
-| permutation, recovery rate | 13/400 | 3.2% | consistent with 5% (p = 0.964) |
+| permutation, rupees | 19/400 | 4.8% | consistent with 5% (p = 0.623) |
+| permutation, recovery rate | 17/400 | 4.2% | consistent with 5% (p = 0.786) |
 
 ## 3. What stratification actually buys
 
-Not calibration — precision. Both designs randomise, so both should reject at
-5% under a null. What differs is how *wide* the null difference is, and a
-narrower null is a lower bar for a real effect to clear.
+Not calibration — both designs randomise, and section 1 shows both rejecting at
+about the same rate. The claim to test is **precision**: a narrower reference
+distribution is a lower bar for a real effect to clear.
 
-| Design | Mean 95% CI width, rupees / episode | Mean 95% CI width, recovery pp |
-|---|---|---|
-| `stratified` | 59,021 | 8.39 |
-| `simple` | 59,027 | 8.39 |
+Two widths, because they answer different questions. The **null band** is the
+middle 95% of the permutation distribution — the noise the decision rule has to
+see past. The **bootstrap CI** is the descriptive interval.
+
+| Design | Null band, rupees / ep | Null band, recovery pp | CI width, rupees / ep | CI width, pp |
+|---|---|---|---|---|
+| `stratified` | 50,528 | 8.61 | 58,449 | 8.63 |
+| `simple` | 57,557 | 8.64 | 58,450 | 8.63 |
+
+Stratifying narrows the null band by **12.2%** on rupees.
 
 ## Reading this
 

@@ -145,10 +145,16 @@ diagnostic text at all — this is a judgement call rather than a lookup. The
 ceiling from text alone is roughly the informative share; anything above it has
 to come from context.
 
-| Arm | classified | correct | accuracy |
-|---|---|---|---|
-| `treatment` | 2000 | 1489 | 74.5% |
-| `baseline_rules` | 750 | 560 | 74.7% |
+| Arm | classified | correct | accuracy | on informative text | on uninformative |
+|---|---|---|---|---|---|
+| `treatment` | 2000 | 1489 | 74.5% | 84.1% (n=1645) | 29.6% (n=355) |
+| `baseline_rules` | 750 | 560 | 74.7% | 85.7% (n=614) | 25.0% (n=136) |
+
+The split is the interesting column. On text that names a mechanism, a keyword
+table with the ISO 8583 codes in it is very hard to beat and a model has almost
+nothing to add. The case for a model rests entirely on the right-hand column —
+the failures where the answer has to be assembled from weak context rather than
+looked up — and on that column being a large enough share of reality to matter.
 
 ## Harm
 

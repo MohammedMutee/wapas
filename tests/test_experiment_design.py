@@ -116,6 +116,23 @@ def test_the_action_window_does_not_depend_on_the_true_cause(world):
     )
 
 
+def test_no_strategy_can_see_whether_the_question_is_answerable():
+    """``signal_informative`` is ground truth about the task, for reporting only.
+
+    If a strategy could read it, it would know when to stop trying to classify
+    and fall straight to a conservative playbook — an advantage no production
+    system has, and one that would show up as a diagnosis improvement.
+    """
+    import dataclasses
+
+    from wapas.strategies.base import StrategyContext
+
+    fields = {f.name for f in dataclasses.fields(StrategyContext)}
+    assert "signal_informative" not in fields
+    assert "true_cause" not in fields
+    assert "would_self_recover" not in fields
+
+
 def test_the_action_window_comes_from_policy():
     policies = load_policies("policies")
     assert policies.money.triage.action_window_hours >= 24
