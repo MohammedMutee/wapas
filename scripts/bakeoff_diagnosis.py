@@ -68,6 +68,10 @@ class Scorecard:
     failures: int = 0
     harmful: int = 0
     """Called a never-retryable cause retryable. The error that costs someone."""
+    clear_right: int = 0
+    clear_total: int = 0
+    murky_right: int = 0
+    murky_total: int = 0
     latencies: list[float] = field(default_factory=list)
     confidence_right: list[float] = field(default_factory=list)
     confidence_wrong: list[float] = field(default_factory=list)
@@ -160,7 +164,8 @@ def main() -> int:
                 return
             elapsed = time.monotonic() - started
             with lock:
-                _record(card, truth, parsed.root_cause, parsed.confidence, elapsed)
+                _record(card, truth, parsed.root_cause, parsed.confidence, elapsed,
+                        informative=getattr(item[2], "signal_informative", True))
 
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             list(pool.map(one, prompts))
@@ -177,8 +182,15 @@ def main() -> int:
     return 0
 
 
-def _record(card: Scorecard, truth, guess, confidence: float, elapsed: float) -> None:
+def _record(card: Scorecard, truth, guess, confidence: float, elapsed: float,
+            informative: bool = True) -> None:
     card.total += 1
+    if informative:
+        card.clear_total += 1
+        card.clear_right += int(guess == truth)
+    else:
+        card.murky_total += 1
+        card.murky_right += int(guess == truth)
     card.latencies.append(elapsed)
     card.confusion[(str(truth), str(guess))] += 1
     if guess == truth:
@@ -203,7 +215,8 @@ def _score_rules(prompts) -> Scorecard:
             is_business=getattr(ep.counterparty, "is_business", False),
         )
         d = classifier.diagnose(ctx)
-        _record(card, truth, d.root_cause, d.confidence, 0.0)
+        _record(card, truth, d.root_cause, d.confidence, 0.0,
+                informative=getattr(ep, "signal_informative", True))
     return card
 
 
@@ -219,13 +232,36 @@ def render(args, cards: list[Scorecard], prompts) -> str:
     A("cannot separate two models; this is small but it is stratified across every")
     A("cause, so a model cannot score well by handling only the common ones.")
     A("")
-    A("| Model | Accuracy | Harmful errors | Failed calls | p50 latency | Confidence gap |")
-    A("|---|---|---|---|---|---|")
+    A("| Model | Accuracy | On informative text | On uninformative | Harmful errors | "
+      "Failed calls | p50 latency | Confidence gap |")
+    A("|---|---|---|---|---|---|---|---|")
     for card in cards:
         latency = "—" if card.median_latency == 0 else f"{card.median_latency:.1f}s"
-        A(f"| `{card.model}` | {card.accuracy:.1%} | {card.harmful} | {card.failures} | "
-          f"{latency} | {card.separation:+.2f} |")
+        clear = (f"{card.clear_right / card.clear_total:.1%}" if card.clear_total else "—")
+        murky = (f"{card.murky_right / card.murky_total:.1%}" if card.murky_total else "—")
+        A(f"| `{card.model}` | {card.accuracy:.1%} | {clear} | {murky} | {card.harmful} | "
+          f"{card.failures} | {latency} | {card.separation:+.2f} |")
     A("")
+
+    baseline = next((c for c in cards if c.model.startswith("rules_only")), None)
+    best = max((c for c in cards if not c.model.startswith("rules_only")),
+               key=lambda c: c.accuracy, default=None)
+    if baseline and best and baseline.total:
+        gap_cases = best.correct - baseline.correct
+        A("### Is the gap real?")
+        A("")
+        A(f"The best model is **{gap_cases} cases** ahead of the keyword classifier out")
+        A(f"of {baseline.total} — {best.accuracy - baseline.accuracy:+.1%}. On a sample")
+        A("this size that is not a difference anyone should act on. A run of 52 cases")
+        A("can separate a working model from a broken one, which is what it was for; it")
+        A("cannot separate two models that both roughly work, and it cannot establish")
+        A("that a model beats a good keyword table.")
+        A("")
+        A("The number that decides that question is the **on uninformative** column,")
+        A("measured at evaluation scale in `results/report.md`, where the treatment arm")
+        A("classifies two thousand episodes rather than fifty-two. Selection is what")
+        A("this file is for. Proof is not.")
+        A("")
     A("**Harmful errors** are cases where the true cause is never-retryable — a dead")
     A("card, a risk decline, a revoked mandate — and the model named something")
     A("retryable. The planner acts on that, so it is the error that reaches a real")

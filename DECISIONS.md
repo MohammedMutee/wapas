@@ -529,3 +529,44 @@ conclusion, and it needs the same evidence as any other conclusion.** It was
 comfortable, it was repeatable, it explained the symptom, and it was wrong —
 and because it was comfortable it survived two bake-offs unexamined. The fix
 took one look at a field the client was discarding.
+
+---
+
+### D27 · The model is chosen. It is not yet justified.
+**2026-08-23**
+
+`scripts/bakeoff_diagnosis.py` replaces the three-case probe of D13 with 52
+labelled cases drawn from the simulator, stratified across all 13 root causes,
+scored on four axes rather than one.
+
+| Model | Accuracy | Harmful errors | Failed calls | p50 | Confidence gap |
+|---|---|---|---|---|---|
+| `rules_only` (no model) | 73.1% | 4 | 0 | — | +0.34 |
+| `openai/gpt-oss-120b` | 78.8% | 4 | 0 | 19.4s | +0.32 |
+| `nvidia/nemotron-3-super-120b-a12b` | 78.8% | 5 | 0 | 12.3s | +0.33 |
+| `nvidia/nemotron-3.5-lightning-30b-a3b` | 51.9% | 4 | 15 | 27.2s | +0.41 |
+
+**Selected: `nvidia/nemotron-3-super-120b-a12b`,** with `gpt-oss-120b` as the
+fallback. Accuracy is identical; nemotron is 1.6× faster and needs half the
+output budget, which at 550 prompts per cold cache is an hour of wall clock.
+The one extra harmful error is a single case and decides nothing. Lightning is
+disqualified on all three of the axes that are not accuracy: 15 failed calls,
+the worst accuracy, and the slowest responses.
+
+**What this does not show.** The models are 3 cases out of 52 ahead of the
+keyword classifier. That is not a difference anyone should act on. A 52-case
+run can separate a working model from a broken one — it did, decisively, for
+lightning — and it cannot establish that a model beats a good keyword table.
+
+It is worth being precise about why the gap is so small, because it is the
+central design question of this project rather than a disappointment. On
+failure text that names a mechanism, a keyword table containing the ISO 8583
+codes is *very* hard to beat: `baseline_rules` scores 85.7% there. The entire
+case for a model lives in the 18% of failures whose text says only that
+something failed, where the rules fall to 25.0% because all they can do is
+guess the modal cause. A 52-case sample contains roughly nine of those.
+
+So the question "does the model earn its cost?" is not answered here and is not
+going to be answered by a bigger bake-off. It is answered by the treatment arm
+classifying two thousand episodes in `results/report.md`, split by whether the
+question was answerable. Selection is what this file is for. Proof is not.

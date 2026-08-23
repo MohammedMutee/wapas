@@ -108,6 +108,7 @@ def build_strategies(*, use_llm: bool, seed: int):
         costs=CostBook.load("config/rates.yaml"),
         cache=DiagnosisCache(),
         budget_usd=cfg.llm_budget_usd,
+        fallback_models=("openai/gpt-oss-120b",),
     )
     factories[Arm.TREATMENT] = lambda: LLMAgent(diagnoser)
     return factories, diagnoser

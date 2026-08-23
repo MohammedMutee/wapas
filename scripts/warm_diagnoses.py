@@ -70,6 +70,7 @@ def main() -> int:
     )
     cache = DiagnosisCache()
     probe = LLMDiagnoser(build_provider(cfg), model=cfg.model_reasoning, costs=costs)
+    print(f"model: {cfg.model_reasoning}", file=sys.stderr)
 
     pending: dict[str, str] = {}
     for ep in population.episodes:
