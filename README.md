@@ -65,7 +65,9 @@ make install     # venv + dependencies
 make up          # Postgres + Redis via docker compose
 make migrate     # schema
 make test        # unit + property tests
-make eval        # seeded batch → results/report.md
+make warm        # pre-fetch every distinct diagnosis prompt into .cache/
+make eval        # seeded batch, rules planner → results/report.md
+make eval-llm    # same, with the LLM agent as the treatment arm
 make calibrate   # false-positive rate on known nulls → results/calibration.md
 make redteam     # 20 adversarial scenarios; expect 0 escapes
 ```
@@ -90,8 +92,9 @@ make redteam     # 20 adversarial scenarios; expect 0 escapes
 | Stratified allocation + permutation test + placebo | ✅ | `eval/stats.py`, `wapas.engine.stratified_assignment` |
 | Self-calibration on known nulls | ✅ | [`results/calibration.md`](results/calibration.md) |
 | Externality pricing (opt-out, complaint, dispute) | ✅ | `config/rates.yaml`, reported separately |
+| LLM diagnosis (structured output, cached, priced) | ✅ | `src/wapas/diagnose/`, NVIDIA NIM |
+| Calibration validator on model output | ✅ | a generic failure signal cannot support a confident answer |
 | Actuators against real Razorpay APIs | ⬜ | next |
-| LLM diagnosis (structured output) | ⬜ | next |
 | Sensitivity sweep + ablations | ⬜ | |
 | Dashboard | ⬜ | |
 

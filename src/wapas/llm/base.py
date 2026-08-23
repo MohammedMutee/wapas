@@ -85,6 +85,16 @@ class ModelProfile:
     notes: str = ""
     measured_on: str = ""
     extra_body: dict[str, Any] = field(default_factory=dict)
+    min_output_tokens: int = 0
+    """Floor on ``max_tokens`` for this model, raised by the provider.
+
+    Reasoning models spend the output budget thinking before they answer, and
+    the budget is shared. Starve one and it does not answer briefly — it
+    returns an empty completion with ``finish_reason=length`` after a long
+    wait, which looks exactly like the endpoint being down. Measured on
+    ``gpt-oss-120b`` on 2026-08-23: 60 tokens gave 74.8s and nothing, 900
+    tokens gave 2.8s and a correct answer. The floor belongs to the model, so
+    it lives in the model's profile rather than in every call site."""
 
     def best_mode(self) -> StructuredMode:
         return self.supports[0]

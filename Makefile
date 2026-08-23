@@ -1,4 +1,4 @@
-.PHONY: help venv install up down migrate seed eval calibrate redteam replay test lint typecheck fmt clean
+.PHONY: help venv install up down migrate seed eval eval-llm warm calibrate redteam replay test lint typecheck fmt clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -38,6 +38,12 @@ seed:            ## Load a seeded synthetic scenario
 
 eval:            ## Run the full batch evaluation and regenerate results/report.md
 	$(PY) -m eval.run_batch --seed $${SEED:-20260901}
+
+warm:            ## Pre-fetch every distinct diagnosis prompt into the local cache
+	$(PY) scripts/warm_diagnoses.py --seed $${SEED:-20260901} --workers $${WORKERS:-8}
+
+eval-llm: warm   ## Run the evaluation with the LLM agent as the treatment arm
+	$(PY) -m eval.run_batch --seed $${SEED:-20260901} --llm
 
 calibrate:       ## Measure the false-positive rate of the evaluation on known nulls
 	$(PY) -m eval.calibrate --seeds $${SEEDS:-300}

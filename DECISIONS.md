@@ -397,3 +397,135 @@ the project:
    claims and are never summed silently.
 3. Net is reported **both with and without** them, so a reader who rejects the
    model entirely can still read every other number in the report.
+
+---
+
+### D23 · What the model is allowed to decide
+**2026-08-23**
+
+The model diagnoses. That is the entire list.
+
+It does not choose actions, schedule contacts, set concessions, or decide when
+to stop. Actions come from the playbook library, which is data; the policy gate
+then independently vets every step against contact, money and escalation rules
+the model never sees and cannot influence. A model returning nonsense degrades
+the recovery rate and nothing else — it cannot produce a 3 a.m. phone call, a
+debit against a revoked mandate, or a fourth message to someone who asked to be
+left alone, because none of those are decisions it is permitted to make.
+
+Three consequences worth stating, because each is a design constraint rather
+than an accident:
+
+**The ablation is clean.** `baseline_rules` runs the identical planner, gate,
+ledger and audit chain with a keyword classifier substituted for the model. The
+difference between the two arms is the diagnosis and nothing else, so the
+comparison answers "does the model earn its cost?" rather than "is this system
+better than that system?"
+
+**The failure mode is bounded and known.** Any failure to obtain a *validated*
+diagnosis — transport, schema, budget — degrades to the rules classifier and is
+counted. The report prints the fallback rate. A provider outage costs recovery
+rate; it does not stop a merchant recovering money and it does not produce
+unaudited behaviour.
+
+**The prompt carries no personal data.** Not a phone number, an email, a name,
+or a payment reference. Nothing about classifying a decline requires knowing
+who the customer is, so sending it to a third-party API would be gratuitous
+exposure. A test asserts it.
+
+---
+
+### D24 · Prompt instructions are not controls
+**2026-08-23**
+
+The system prompt tells the model, in plain terms, that a failure text like
+"Transaction declined" identifies nothing and must be answered `unknown` with
+low confidence. Told that explicitly, naming that exact string and that exact
+failure mode, the live endpoint answered `gateway_error` at **0.95
+confidence**. Tightening the wording moved it to 0.80. It was still wrong, and
+still confident.
+
+This matters more than one bad classification: 18% of episodes present an
+uninformative signal, and a confident wrong cause is what causes a forbidden
+retry against a dead card. An instruction the model can decline to follow is
+not a control.
+
+So the check became structural. `DiagnosisResponse` now asks the model to grade
+`signal_quality` — specific / weak / generic — *before* choosing a cause, and a
+Pydantic validator refuses any answer whose confidence exceeds what its own
+grade allows (0.5 for generic, 0.75 for weak). The two statements "this text
+names no mechanism" and "I am 95% sure which mechanism it was" contradict each
+other, and that contradiction is machine-checkable even though the underlying
+judgement is not.
+
+Rejection is not refusal. `ask_structured` feeds the validator's message back
+and asks again, and models are markedly better at repairing a named
+inconsistency than at avoiding it. If it still cannot produce a consistent
+answer, the caller degrades to rules.
+
+The general principle, which applies well beyond this field: **when you want a
+model to respect a constraint, find the version of that constraint a validator
+can check, and put the model's own self-assessment on the other side of it.**
+
+---
+
+### D25 · Caching model calls, and why the cache is not committed
+**2026-08-23**
+
+Amounts reach the model as bands rather than exact figures, and the failure
+signals come from a fixed pool, so 5,000 episodes collapse to about 550
+distinct prompts. The cache is keyed on the prompt digest, which already covers
+the system prompt, the user prompt, the model and the structured mode — so
+editing the prompt or switching models invalidates every entry automatically
+rather than quietly serving answers to a different question.
+
+Banding amounts is a deliberate trade. It costs the model a signal it could in
+principle use, and it buys three things: `make eval` becomes reproducible
+despite a non-deterministic API, a run costs a few hundred calls instead of
+five thousand, and a free endpoint is not hammered.
+
+**The cache is gitignored.** A committed cache would let the repository produce
+the headline number without making a single model call, which is shipping a
+conclusion rather than the evidence for it. `make warm` rebuilds it in a couple
+of minutes.
+
+---
+
+### D26 · The model was not hanging. We were starving it.
+**2026-08-23**
+
+Three separate times this project recorded `openai/gpt-oss-120b` as "hanging"
+or "timing out" on the NVIDIA endpoint — twice in the D13 bake-off, once while
+warming the diagnosis cache. Each time the conclusion was the same: the free
+tier is flaky.
+
+It was not flaky. Reading the raw response envelope instead of the parsed
+content settled it in one call:
+
+```
+max_tokens=60   74.8s  finish_reason=length  content=''   reasoning_content='The user asks…'
+max_tokens=900   2.8s  finish_reason=stop    content='{"ok": true}'
+```
+
+It is a reasoning model. It emits `reasoning_content` before `content`, and
+both draw on the same output budget. Given too small a budget it spends the
+whole thing thinking, stops mid-thought, and returns an empty completion after
+a long wait — which through a client that only reads `content` is
+indistinguishable from a dead endpoint.
+
+Three changes:
+
+* `ModelProfile.min_output_tokens`, raised by the provider on every call. The
+  floor is a property of the model, so it belongs in the model's profile rather
+  than at each call site.
+* An empty completion with `finish_reason=length` now raises a **non-retryable**
+  error naming the actual cause. Retrying an identical starved request three
+  times only delays the diagnosis.
+* An empty completion for any other reason stays retryable — that one really is
+  the endpoint.
+
+The lesson generalises past this model. **"The provider is flaky" is a
+conclusion, and it needs the same evidence as any other conclusion.** It was
+comfortable, it was repeatable, it explained the symptom, and it was wrong —
+and because it was comfortable it survived two bake-offs unexamined. The fix
+took one look at a field the client was discarding.

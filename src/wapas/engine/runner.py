@@ -393,6 +393,14 @@ class EpisodeRunner:
                 is_business=getattr(ep.counterparty, "is_business", False),
             )
         )
+        # Token cost belongs to the episode that incurred it. A strategy that
+        # does not call a model returns zero, so this is free for every
+        # baseline and the ledger stays comparable across arms.
+        token_cost = getattr(strategy, "drain_cost", lambda: ZERO)()
+        if token_cost:
+            result.cost_paise = Paise(result.cost_paise + token_cost)
+            self._audit(now, "system", "cost", ep.ref,
+                        {"kind": str(CostKind.LLM_TOKENS), "amount_paise": int(token_cost)})
         if diagnosis is not None:
             result.diagnosed_cause = diagnosis.root_cause
             self._audit(now, "system", "diagnosis", ep.ref, {

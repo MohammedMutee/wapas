@@ -54,12 +54,63 @@ STRATEGIES = {
     Arm.BASELINE_BLAST: Blast,
     Arm.BASELINE_RULES: RulesOnly,
 }
-TREATMENT_NOTE = (
-    "The treatment arm currently runs the **rules-only** planner. The LLM agent "
-    "is not yet wired in, so treatment and `baseline_rules` are the same policy "
+RULES_ONLY_NOTE = (
+    "The treatment arm is running the **rules-only** planner: this run was made "
+    "without `--llm`, so treatment and `baseline_rules` are the same policy "
     "differing only by sample. Any gap between them is sampling noise, and the "
-    "LLM ablation is not yet meaningful."
+    "LLM ablation is not meaningful in this report."
 )
+LLM_NOTE = (
+    "The treatment arm runs the **LLM agent**. It shares the playbook library, "
+    "the policy gate, the cost ledger and the audit chain with `baseline_rules`; "
+    "the only difference between the two arms is how the root cause is "
+    "classified. That is what makes the comparison an ablation of the model "
+    "rather than of the system around it."
+)
+
+
+def build_strategies(*, use_llm: bool, seed: int):
+    """Strategy factories per arm, plus the diagnoser if one is in play.
+
+    The diagnoser is created **once** and shared across episodes so its cache,
+    its spend and its budget ceiling are per-run rather than per-episode. A
+    per-episode budget would be no budget at all.
+    """
+    factories = dict(STRATEGIES)
+    if not use_llm:
+        return factories, None
+
+    from wapas.config import settings
+    from wapas.diagnose import DiagnosisCache, LLMDiagnoser
+    from wapas.llm import OpenAICompatProvider
+    from wapas.llm.retry import RetryingProvider
+    from wapas.strategies import LLMAgent
+
+    cfg = settings()
+    if cfg.nvidia_api_key is None:
+        raise SystemExit(
+            "--llm was requested but no NVIDIA_API_KEY is configured. Refusing to "
+            "run: silently falling back to the rules planner would produce a "
+            "report labelled as an LLM result that is not one."
+        )
+    provider = RetryingProvider(
+        OpenAICompatProvider(
+            base_url=cfg.nvidia_base_url,
+            api_key=cfg.nvidia_api_key.get_secret_value(),
+            name="nvidia",
+        ),
+        attempts=3,
+        base_delay_s=2.0,
+    )
+    diagnoser = LLMDiagnoser(
+        provider,
+        model=cfg.model_reasoning,
+        costs=CostBook.load("config/rates.yaml"),
+        cache=DiagnosisCache(),
+        budget_usd=cfg.llm_budget_usd,
+    )
+    factories[Arm.TREATMENT] = lambda: LLMAgent(diagnoser)
+    return factories, diagnoser
 
 
 @dataclass
@@ -130,15 +181,17 @@ def summarise(results: list[EpisodeResult]) -> dict[Arm, ArmSummary]:
 
 
 def run_population(params, policies, costs, *, seed: int, start: _dt.datetime,
-                   chain: HashChain | None = None) -> tuple[list[EpisodeResult], Allocation]:
+                   chain: HashChain | None = None,
+                   strategies=None) -> tuple[list[EpisodeResult], Allocation]:
     """Simulate one whole world and run every episode through its assigned arm."""
+    factories = strategies or STRATEGIES
     population = build_population(params, run_seed=seed, start=start)
     allocation = stratified_assignment(
         [(ep.ref, int(ep.amount_paise)) for ep in population.episodes], seed, ARM_SHARES
     )
     runner = EpisodeRunner(policies=policies, costs=costs, response=ResponseModel(params),
                            run_seed=seed, chain=chain)
-    results = [runner.run(ep, allocation[ep.ref], STRATEGIES[allocation[ep.ref]]())
+    results = [runner.run(ep, allocation[ep.ref], factories[allocation[ep.ref]]())
                for ep in population.episodes]
     return results, allocation
 
@@ -197,6 +250,8 @@ def main() -> int:
     ap.add_argument("--params", default="sim/params.yaml")
     ap.add_argument("--out", default="results/report.md")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--llm", action="store_true",
+                    help="run the treatment arm with the LLM agent instead of rules")
     args = ap.parse_args()
 
     params = load_params(args.params)
@@ -204,13 +259,18 @@ def main() -> int:
     costs = CostBook.load("config/rates.yaml")
     start = _dt.datetime(2026, 6, 1, tzinfo=IST)
 
+    factories, diagnoser = build_strategies(use_llm=args.llm, seed=args.seed)
     chain = HashChain(salt=f"eval-{args.seed}")
     results, allocation = run_population(
-        params, policies, costs, seed=args.seed, start=start, chain=chain
+        params, policies, costs, seed=args.seed, start=start, chain=chain,
+        strategies=factories,
     )
+    if diagnoser is not None and diagnoser.cache is not None:
+        diagnoser.cache.save()
 
     summaries = summarise(results)
-    report = build_report(args, params, policies, costs, results, allocation, summaries, chain)
+    report = build_report(args, params, policies, costs, results, allocation, summaries,
+                          chain, diagnoser)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
@@ -221,7 +281,9 @@ def main() -> int:
     return 0
 
 
-def build_report(args, params, policies, costs, results, allocation, summaries, chain) -> str:
+def build_report(args, params, policies, costs, results, allocation, summaries, chain,
+                 diagnoser=None) -> str:
+    treatment_note = LLM_NOTE if diagnoser is not None else RULES_ONLY_NOTE
     treat = summaries[Arm.TREATMENT]
     control = summaries[Arm.CONTROL]
 
@@ -263,7 +325,7 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
     A("> world defined in `sim/params.yaml`, whose generative parameters are published")
     A("> and which the agent never reads. These are not measured Razorpay statistics.")
     A("")
-    A(f"> **Note on the current treatment arm.** {TREATMENT_NOTE}")
+    A(f"> **The treatment arm.** {treatment_note}")
     A("")
     A("## Headline")
     A("")
@@ -471,6 +533,36 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
               f"{s.diagnosed_correct / s.diagnosed:.1%} |")
     A("")
 
+    if diagnoser is not None:
+        st = diagnoser.stats
+        total = st.calls + st.cache_hits
+        A("## The model")
+        A("")
+        A("| | |")
+        A("|---|---|")
+        A(f"| Model | `{diagnoser.model}` |")
+        A(f"| Diagnoses served | {total} ({st.cache_hits} from cache, {st.calls} live) |")
+        A(f"| Fell back to rules | {st.failures} ({st.fallback_rate:.1%}) |")
+        A(f"| Stopped by the budget ceiling | {st.budget_stops} |")
+        A(f"| Attempts per successful call | "
+          f"{st.attempts / max(1, st.calls):.2f} |")
+        A(f"| Tokens | {st.input_tokens:,} in, {st.output_tokens:,} out |")
+        A(f"| Token cost (notional; free tier) | {format_inr(st.spend_paise)} |")
+        A("")
+        A("Prompts are content-addressed and the cache is keyed on their digest, so a")
+        A("second run of the same seed makes no calls at all and produces a byte-identical")
+        A("report. Amounts reach the model as bands rather than exact figures, which is")
+        A("what makes that collapse possible — and the prompt carries no personal data of")
+        A("any kind, because nothing about diagnosing a decline requires knowing who the")
+        A("customer is.")
+        A("")
+        if st.failure_reasons:
+            A(f"Failures encountered (first 3 of {len(st.failure_reasons)}):")
+            A("")
+            for reason in st.failure_reasons[:3]:
+                A(f"- `{reason[:160]}`")
+            A("")
+
     A("## Harm")
     A("")
     A("What each strategy costs the people on the other end. **Forbidden retries** are")
@@ -538,7 +630,7 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
     A("")
     A("- Results are in-simulation. The sensitivity sweep (±30% on every parameter)")
     A("  is not yet implemented, so these numbers are one point in parameter space.")
-    A(f"- {TREATMENT_NOTE}")
+    A(f"- {treatment_note}")
     A("- Self-recovery is credited to whichever arm the episode fell in, including")
     A("  treatment. That is correct — it is exactly what the control arm subtracts —")
     A("  but it means the gross figure above is *not* the agent's achievement.")

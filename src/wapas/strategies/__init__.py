@@ -18,11 +18,23 @@ strategy                      what it represents
                               complaints — which is the argument for guardrails.
 :class:`RulesOnly`            a well-written cause-aware expert system. The
                               honest ablation for "does the LLM earn its cost?"
+:class:`LLMAgent`             the product: model diagnosis feeding the same
+                              planner, gate and ledger as ``RulesOnly``, so the
+                              difference between them is the diagnosis alone.
 ============================  ==============================================
 """
 
+from .agent import LLMAgent
 from .base import Strategy, StrategyContext
 from .baselines import Blast, DoNothing, NaiveRetry
 from .rules import RulesOnly
 
-__all__ = ["Blast", "DoNothing", "NaiveRetry", "RulesOnly", "Strategy", "StrategyContext"]
+__all__ = [
+    "Blast",
+    "DoNothing",
+    "LLMAgent",
+    "NaiveRetry",
+    "RulesOnly",
+    "Strategy",
+    "StrategyContext",
+]

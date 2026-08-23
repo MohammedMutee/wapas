@@ -19,3 +19,8 @@ results/*.png
 *secret*
 *credential*
 .secrets/
+
+# Local model-response cache. Deliberately not committed: shipping cached
+# results without the calls that produced them is shipping a conclusion,
+# not evidence. "make warm" rebuilds it.
+.cache/

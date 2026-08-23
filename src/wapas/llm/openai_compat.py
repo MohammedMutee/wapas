@@ -35,18 +35,21 @@ NVIDIA_PROFILES: dict[str, ModelProfile] = {
         name="openai/gpt-oss-120b",
         supports=(StructuredMode.PROMPTED, StructuredMode.JSON_OBJECT),
         timeout_s=120.0,
-        measured_on="2026-08-22",
-        notes="DEFAULT REASONING MODEL. 3/3 correct in PROMPTED mode (15.4s avg). "
-              "Constrained modes are unreliable on this endpoint: json_object "
-              "answered correctly in 3.4s on a single call but timed out across a "
-              "3-case run, and json_schema times out consistently. PROMPTED is "
-              "listed first deliberately — see D13 in DECISIONS.md.",
+        min_output_tokens=1400,
+        measured_on="2026-08-23",
+        notes="Reasoning model: it emits reasoning_content before content, and both "
+              "share max_tokens. Starve it and it returns an EMPTY completion with "
+              "finish_reason=length after a long wait — 60 tokens gave 74.8s and "
+              "nothing, 900 gave 2.8s and a correct answer. Every earlier report of "
+              "this model 'hanging' was this, including two in D13. "
+              "Constrained modes remain unreliable here, so PROMPTED is first.",
     ),
     # ── probed, not selected ─────────────────────────────────────────────────
     "nvidia/nemotron-3-super-120b-a12b": ModelProfile(
         name="nvidia/nemotron-3-super-120b-a12b",
         supports=(StructuredMode.PROMPTED, StructuredMode.JSON_SCHEMA, StructuredMode.JSON_OBJECT),
         timeout_s=90.0,
+        min_output_tokens=700,
         measured_on="2026-08-22",
         notes="The sharpest result in the bake-off. Constrained decoding: 0/3 correct "
               "(1/3 even matched the schema). Same model, same cases, PROMPTED mode: "
@@ -150,6 +153,7 @@ class OpenAICompatProvider(LLMProvider):
         temperature: float = 0.0,
     ) -> LLMResponse:
         prof = self.profile(model)
+        max_tokens = max(max_tokens, prof.min_output_tokens)
         body: dict[str, Any] = {
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -193,6 +197,25 @@ class OpenAICompatProvider(LLMProvider):
             content = choice["message"]["content"] or ""
         except (json.JSONDecodeError, KeyError, IndexError) as exc:
             raise ProviderError(f"{model}: malformed response envelope: {exc}") from exc
+
+        if not content.strip() and str(choice.get("finish_reason", "")) == "length":
+            raise ProviderError(
+                f"{model}: output budget of {max_tokens} tokens was consumed before "
+                f"the answer began — this model reasons before it replies and the "
+                f"reasoning shares the budget. Raise min_output_tokens in its profile.",
+                retryable=False,
+            )
+        if not content.strip():
+            # An empty completion is a transport failure wearing a 200, and this
+            # endpoint does produce them under load — a 67-second round trip
+            # returning nothing at all. Treating it as a model *answer* sends it
+            # into the JSON-repair retry loop, where it costs two more calls
+            # before failing for the wrong reason. It is retryable, so say so.
+            raise ProviderError(
+                f"{model}: empty completion after {latency_ms}ms "
+                f"(finish_reason={choice.get('finish_reason', '?')})",
+                retryable=True,
+            )
 
         u = data.get("usage") or {}
         return LLMResponse(

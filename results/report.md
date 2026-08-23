@@ -6,7 +6,7 @@ Seed `20260901` · episodes `5000` · policy `contact/3+money/4+escalation/3` ·
 > world defined in `sim/params.yaml`, whose generative parameters are published
 > and which the agent never reads. These are not measured Razorpay statistics.
 
-> **Note on the current treatment arm.** The treatment arm currently runs the **rules-only** planner. The LLM agent is not yet wired in, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not yet meaningful.
+> **The treatment arm.** The treatment arm is running the **rules-only** planner: this run was made without `--llm`, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not meaningful in this report.
 
 ## Headline
 
@@ -213,7 +213,7 @@ ranking stands as measured and the argument is made on its actual grounds.
 
 - Results are in-simulation. The sensitivity sweep (±30% on every parameter)
   is not yet implemented, so these numbers are one point in parameter space.
-- The treatment arm currently runs the **rules-only** planner. The LLM agent is not yet wired in, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not yet meaningful.
+- The treatment arm is running the **rules-only** planner: this run was made without `--llm`, so treatment and `baseline_rules` are the same policy differing only by sample. Any gap between them is sampling noise, and the LLM ablation is not meaningful in this report.
 - Self-recovery is credited to whichever arm the episode fell in, including
   treatment. That is correct — it is exactly what the control arm subtracts —
   but it means the gross figure above is *not* the agent's achievement.
