@@ -72,6 +72,7 @@ class LLMDiagnoser:
         max_tokens: int = 1400,
         fallback_models: tuple[str, ...] = (),
         history=None,
+        fleet=None,
         neighbour_threshold: float = 0.60,
     ) -> None:
         self.provider = provider
@@ -89,6 +90,9 @@ class LLMDiagnoser:
         For the rest, base rates and near-duplicate wordings go into the
         prompt as evidence.
         """
+        self.fleet = fleet
+        """Live failure traffic across episodes. Evidence about this payment
+        that this payment's own text does not contain."""
         self.neighbour_threshold = neighbour_threshold
         """Retrieved exemplars below this similarity are withheld.
 
@@ -123,7 +127,8 @@ class LLMDiagnoser:
         self.stats = DiagnoserStats()
         self.by_model: dict[str, int] = {}
         self.history_hits = 0
-        self.rules = RulesOnly(history=history)
+        self.no_signal_hits = 0
+        self.rules = RulesOnly(history=history, fleet=fleet)
         self._last_cost: Paise = ZERO
 
     # ── the call ─────────────────────────────────────────────────────────────
@@ -147,11 +152,16 @@ class LLMDiagnoser:
                 )
                 if pair[1] >= self.neighbour_threshold
             ] or None
+        outage = False
+        if self.fleet is not None and ctx.issuer:
+            signal = self.fleet.signal_at(ctx.issuer, ctx.now)
+            outage = bool(signal and signal.spiking)
         user = build_user_prompt(
             surface=ctx.surface, rail=ctx.rail, error_code=ctx.error_code,
             error_description=ctx.error_description, error_source=ctx.error_source,
             error_step=ctx.error_step, amount_paise=ctx.amount_paise,
             is_business=ctx.is_business, prior=prior, neighbours=neighbours,
+            issuer_spiking=outage,
         )
         mode = self.provider.profile(self.model).best_mode()
         return user, prompt_digest(SYSTEM, user, self.model, mode)
@@ -173,6 +183,25 @@ class LLMDiagnoser:
                     recommended_horizon_hours=DISPOSITIONS[cause].default_horizon_hours or 24,
                     notes="resolved-history lookup; no model call needed",
                 )
+
+        # Then: text that says nothing at all.
+        #
+        # For a wording history has seen many times under many causes, there is
+        # no reading to be done. What is left is an outage check and, failing
+        # that, the most likely cause for this context — both deterministic,
+        # both optimal, and measurably better than asking a model. On identical
+        # episodes the deterministic path scores 50.7% on this text and the
+        # model 45.7%, because the model is being asked to reproduce an argmax
+        # over base rates and there are better ways to compute an argmax.
+        #
+        # This is the same principle as the exact-history lookup one branch up.
+        # The model is for text that can be read. Routing everything through it
+        # because it is the interesting component would be worse on the metric
+        # and worse on the bill.
+        if (self.history is not None
+                and self.history.known_ambiguous(ctx.error_description)):
+            self.no_signal_hits += 1
+            return self.rules.diagnose(ctx)
 
         user, digest = self.prompt_for(ctx)
 

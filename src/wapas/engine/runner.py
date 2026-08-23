@@ -315,6 +315,7 @@ class EpisodeRunner:
                 error_description=ep.error_description, error_source=ep.error_source,
                 error_step=ep.error_step, attempt_no=1,
                 is_business=getattr(ep.counterparty, "is_business", False),
+                issuer=getattr(ep, "issuer", ""),
                 diagnosis=diagnosis, step_no=step,
                 actions_taken=result.actions_taken, contacts_made=result.contacts_made,
             )
@@ -399,6 +400,7 @@ class EpisodeRunner:
                 error_description=ep.error_description, error_source=ep.error_source,
                 error_step=ep.error_step, attempt_no=1,
                 is_business=getattr(ep.counterparty, "is_business", False),
+                issuer=getattr(ep, "issuer", ""),
             )
         )
         # Token cost belongs to the episode that incurred it. A strategy that

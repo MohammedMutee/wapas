@@ -56,13 +56,23 @@ class FleetView:
     only what had already happened by ``t``.
     """
 
-    window_minutes: int = 45
+    window_minutes: int = 60
     min_failures: int = 6
     """Below this the window is too thin to call anything. A bank with two
     failures in an hour is a Tuesday, not an outage."""
-    spike_lift: float = 3.0
-    """How far above the issuer's own normal rate counts as a spike. Tuned to
-    be conservative: a false 'the bank is down' sends a retry into a wall."""
+    spike_lift: float = 2.0
+    """How far above the issuer's own normal rate counts as a spike.
+
+    These three were tuned on the **history** population, not the evaluation
+    one: precision constrained to 97% and recall maximised subject to it. The
+    first attempt picked them by scoring on the evaluation set, which is how
+    you get a detector that works exactly once. Tuning honestly cost about six
+    points of recall — 75% became 69% — and the held-out numbers are now worth
+    quoting: precision 97.8%, recall 68.6%.
+
+    Precision is the binding constraint rather than recall. Missing an outage
+    costs a diagnosis; inventing one sends a retry into a wall and tells the
+    planner to wait for a recovery that was never coming."""
 
     _times: dict[str, list[float]] = field(default_factory=dict)
     _span_hours: float = 1.0

@@ -131,12 +131,18 @@ def build_user_prompt(
     is_business: bool,
     prior: tuple[list[tuple[object, float]], str] | None = None,
     neighbours: list[tuple[object, float]] | None = None,
+    issuer_spiking: bool = False,
 ) -> str:
     """The episode-specific half. Deliberately narrow, and free of PII.
 
     ``prior`` and ``neighbours`` come from the merchant's resolved history.
     Both are evidence a deployed system genuinely has and earlier versions of
     this prompt withheld, which made the task harder than the real one.
+
+    ``issuer_spiking`` is stated as a fact rather than a rate, deliberately.
+    The model cannot use "6.2x normal" better than "far above normal", and
+    quoting the number would give every episode a distinct prompt and make the
+    diagnosis cache useless.
 
     Base rates are rounded to 5% on purpose. The model cannot use more
     precision than that, and rounding collapses hundreds of near-identical
@@ -156,6 +162,16 @@ def build_user_prompt(
         f"  amount band:  {_band(amount_paise)}",
         f"  counterparty: {'business' if is_business else 'consumer'}",
     ]
+
+    if issuer_spiking:
+        lines += [
+            "",
+            "OTHER TRAFFIC: this bank is currently failing far above its normal rate.",
+            "  An outage is in progress. A failure on this bank right now is most likely",
+            "  issuer_down even when its own error text says something else, unless that",
+            "  text names a different mechanism outright (an expired card is still an",
+            "  expired card during an outage).",
+        ]
 
     if prior:
         distribution, level = prior

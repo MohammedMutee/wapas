@@ -31,6 +31,8 @@ class StrategyContext:
     error_step: str
     attempt_no: int
     is_business: bool
+    issuer: str = ""
+    """Which bank. Observable, and the axis a failure spike shows up on."""
 
     diagnosis: Diagnosis | None = None
     step_no: int = 0

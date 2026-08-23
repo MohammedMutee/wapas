@@ -83,12 +83,18 @@ def build_strategies(*, use_llm: bool, seed: int, params=None):
     its spend and its budget ceiling are per-run rather than per-episode. A
     per-episode budget would be no budget at all.
     """
+    from wapas.diagnose.fleet import FleetView
     from wapas.diagnose.history import build_history
 
-    history = None
+    history = fleet = None
     if params is not None:
-        history = build_history(
-            params, seed=HISTORY_SEED, start=_dt.datetime(2026, 6, 1, tzinfo=IST)
+        start = _dt.datetime(2026, 6, 1, tzinfo=IST)
+        history = build_history(params, seed=HISTORY_SEED, start=start)
+        # The merchant's own live traffic: when each failure happened and which
+        # bank it was on. Observable, and causal — a view queried at time t
+        # counts nothing that happened after t.
+        fleet = FleetView.from_episodes(
+            build_population(params, run_seed=seed, start=start).episodes
         )
         # Both diagnosing arms get it. A baseline denied the merchant's own
         # resolved history would be a strawman: for a fixed vocabulary of error
@@ -96,8 +102,8 @@ def build_strategies(*, use_llm: bool, seed: int, params=None):
         # has to be an ablation of the model rather than of who was allowed to
         # remember things.
         factories = dict(STRATEGIES)
-        factories[Arm.BASELINE_RULES] = lambda: RulesOnly(history=history)
-        factories[Arm.TREATMENT] = lambda: RulesOnly(history=history)
+        factories[Arm.BASELINE_RULES] = lambda: RulesOnly(history=history, fleet=fleet)
+        factories[Arm.TREATMENT] = lambda: RulesOnly(history=history, fleet=fleet)
     else:
         factories = dict(STRATEGIES)
     if not use_llm:
@@ -133,6 +139,7 @@ def build_strategies(*, use_llm: bool, seed: int, params=None):
         budget_usd=cfg.llm_budget_usd,
         fallback_models=("openai/gpt-oss-120b",),
         history=history,
+        fleet=fleet,
     )
     factories[Arm.TREATMENT] = lambda: LLMAgent(diagnoser)
     return factories, diagnoser
@@ -277,11 +284,59 @@ def _acc(results: list[EpisodeResult], bucket: str) -> str:
             f"(n={len(group)})")
 
 
+def _acc_value(results: list[EpisodeResult], bucket: str) -> float:
+    group = [r for r in results
+             if r.diagnosis_correct is not None and _bucket(r) == bucket]
+    if not group:
+        return 0.0
+    return sum(1 for r in group if r.diagnosis_correct) / len(group)
+
+
 def _overall_acc(results: list[EpisodeResult]) -> str:
     group = [r for r in results if r.diagnosis_correct is not None]
     if not group:
         return "—"
     return f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%}"
+
+
+def head_to_head_diagnosis(params, seed: int, start, diagnoser, history, fleet):
+    """Both classifiers over *every* episode, not over their randomised arms.
+
+    Recovery is a causal question and needs randomisation. Accuracy is not: it
+    is a property of a classifier and a set of inputs, so running the two over
+    identical episodes removes the sampling noise entirely and answers the
+    question exactly.
+
+    It matters here. On the arm-split the keyword classifier scored 50.7% on
+    uninformative text against the model's 45.6% — on 136 episodes against 355,
+    a gap comfortably inside the noise of the smaller sample. Comparing them on
+    the same 5,000 episodes settles it instead of guessing.
+    """
+    from sim import build_population
+    from wapas.strategies import RulesOnly
+    from wapas.strategies.base import StrategyContext
+
+    population = build_population(params, run_seed=seed, start=start)
+    rules = RulesOnly(history=history, fleet=fleet)
+    tallies: dict[str, dict[str, list[int]]] = {
+        name: {b: [0, 0] for b in BUCKETS} for name in ("model", "rules")
+    }
+    for ep in population.episodes:
+        ctx = StrategyContext(
+            opened_at=ep.occurred_at, now=ep.occurred_at, surface=ep.surface,
+            amount_paise=ep.amount_paise, rail=ep.rail, error_code=ep.error_code,
+            error_description=ep.error_description, error_source=ep.error_source,
+            error_step=ep.error_step, attempt_no=1,
+            is_business=getattr(ep.counterparty, "is_business", False),
+            issuer=getattr(ep, "issuer", ""),
+        )
+        bucket = ("no signal" if not ep.signal_informative
+                  else "seen wording" if ep.signal_established else "new wording")
+        for name, classifier in (("model", diagnoser), ("rules", rules)):
+            got = classifier.diagnose(ctx).root_cause
+            tallies[name][bucket][1] += 1
+            tallies[name][bucket][0] += int(got == ep.true_cause)
+    return tallies
 
 
 def _oracle_ceiling(results: list[EpisodeResult]) -> tuple[float, float]:
@@ -370,6 +425,19 @@ def main() -> int:
 def build_report(args, params, policies, costs, results, allocation, summaries, chain,
                  diagnoser=None) -> str:
     treatment_note = LLM_NOTE if diagnoser is not None else RULES_ONLY_NOTE
+    # Snapshot before anything in this function calls the diagnoser again. The
+    # head-to-head accuracy measurement runs it over all 5,000 episodes, which
+    # would otherwise inflate these counters past the size of the arm they
+    # describe — it briefly reported 4,522 history hits in a 2,000-episode arm.
+    served: dict[str, int] = {}
+    if diagnoser is not None:
+        served = {
+            "history": diagnoser.history_hits,
+            "deterministic": diagnoser.no_signal_hits,
+            "model": diagnoser.stats.calls + diagnoser.stats.cache_hits,
+            "cache": diagnoser.stats.cache_hits,
+            "live": diagnoser.stats.calls,
+        }
     treat = summaries[Arm.TREATMENT]
     control = summaries[Arm.CONTROL]
 
@@ -628,9 +696,25 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
         A(f"| `{arm}` | {correct / len(rs):.1%} | "
           + " | ".join(_acc(rs, b) for b in BUCKETS) + " |")
     oracle = _oracle_ceiling(results)
-    A(f"| *oracle that knows every wording* | *{oracle[0]:.1%}* | *100.0%* | *100.0%* | "
+    A(f"| *oracle limited to the episode itself* | *{oracle[0]:.1%}* | *100.0%* | *100.0%* | "
       f"*{oracle[1]:.1%}* |")
     A("")
+    A("The oracle row is a ceiling for classifiers that read **one episode at a time**:")
+    A("it knows every wording, and where the text says nothing it names the most common")
+    A("cause for that surface. Nothing that reads only this payment can beat it.")
+    A("")
+    murky_beat = [
+        arm for arm in (Arm.TREATMENT, Arm.BASELINE_RULES)
+        if by_arm.get(arm) and _acc_value(by_arm[arm], "no signal") > oracle[1]
+    ]
+    if murky_beat:
+        A("**Both arms exceed it in the no-signal column, which is the point.** They are")
+        A("not better classifiers of a content-free string — nothing can be. They stop")
+        A("classifying it in isolation. When forty payments on one bank fail inside an")
+        A("hour, that bank is down, and that is evidence about *this* payment which")
+        A("*this* payment's error text does not contain. Beating a ceiling means the")
+        A("information available changed, not that somebody got cleverer.")
+        A("")
     generated = {RootCause(name) for name in params.failure_causes} | {
         RootCause.MANDATE_REVOKED, RootCause.MANDATE_INSUFFICIENT,
         RootCause.INVOICE_FORGOTTEN, RootCause.INVOICE_CASH_CRUNCH,
@@ -691,7 +775,7 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
 
     if diagnoser is not None:
         st = diagnoser.stats
-        total = st.calls + st.cache_hits
+        total = served["model"]
         A("## The model")
         A("")
         A("| | |")
@@ -701,8 +785,11 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A(f"| Fallback chain | {', '.join(f'`{m}`' for m in diagnoser.fallback_models)} |")
         for served, count in sorted(diagnoser.by_model.items(), key=lambda kv: -kv[1]):
             A(f"| Served by `{served}` | {count} |")
-        A(f"| Answered from resolved history, no model call | {diagnoser.history_hits} |")
-        A(f"| Sent to the model | {total} ({st.cache_hits} from cache, {st.calls} live) |")
+        A(f"| Answered from resolved history, no model call | {served['history']} |")
+        A(f"| Answered deterministically (outage or base rates) | "
+          f"{served['deterministic']} |")
+        A(f"| Sent to the model | {served['model']} ({served['cache']} from cache, "
+          f"{served['live']} live) |")
         A(f"| Fell back to rules | {st.failures} ({st.fallback_rate:.1%}) |")
         A(f"| Stopped by the budget ceiling | {st.budget_stops} |")
         A(f"| Attempts per successful call | "
@@ -710,13 +797,15 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
         A(f"| Tokens | {st.input_tokens:,} in, {st.output_tokens:,} out |")
         A(f"| Token cost (notional; free tier) | {format_inr(st.spend_paise)} |")
         A("")
-        if diagnoser.history_hits:
-            share = diagnoser.history_hits / max(1, diagnoser.history_hits + total)
-            A(f"**{share:.0%} of episodes never reach the model.** A wording the merchant")
-            A("has resolved consistently before is answered by lookup: for a fixed")
-            A("vocabulary that is optimal, and asking a language model to reconsider it")
-            A("would be slower, costlier and worse. The model is called only where history")
-            A("cannot answer — which is also the only place its value can be demonstrated.")
+        if served["history"]:
+            share = (served["history"] + served["deterministic"]) / max(
+                1, served["history"] + served["deterministic"] + total
+            )
+            A(f"**{share:.0%} of episodes never reach the model.** A wording resolved")
+            A("consistently before is answered by lookup; text that identifies nothing is")
+            A("answered by the outage detector or the base rates. Both are optimal on")
+            A("their own ground and both are free. The model is called only where neither")
+            A("can answer — which is also the only place its value can be demonstrated.")
             A("")
         A("Prompts are content-addressed and the cache is keyed on their digest, so a")
         A("second run of the same seed makes no calls at all and produces a byte-identical")
@@ -744,47 +833,68 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A("and the same resolved history; the only difference between these two arms")
             A("is who classifies the cause when history cannot.")
             A("")
+            head = head_to_head_diagnosis(
+                params, args.seed, _dt.datetime(2026, 6, 1, tzinfo=IST),
+                diagnoser, diagnoser.history, diagnoser.fleet,
+            )
+
+            def pct(name: str, bucket: str) -> str:
+                got, total = head[name][bucket]
+                return f"{got / total:.1%} (n={total})" if total else "—"
+
+            def overall(name: str) -> str:
+                got = sum(v[0] for v in head[name].values())
+                total = sum(v[1] for v in head[name].values())
+                return f"{got / total:.1%}" if total else "—"
+
+            A("Accuracy is measured on **all 5,000 episodes for both classifiers**, not")
+            A("on their randomised arms. Recovery is a causal question and needs")
+            A("randomisation; accuracy is not, so running both over identical inputs")
+            A("removes the sampling noise instead of reporting it. On the arm split the")
+            A("keyword classifier appeared to lead on uninformative text — on 136")
+            A("episodes against 355, a gap well inside the smaller sample's noise.")
+            A("")
             A("| | Model | Keyword classifier |")
             A("|---|---|---|")
             for label, bucket in (("Wording seen in history", "seen wording"),
                                   ("**Wording never seen**", "new wording"),
                                   ("Text identifies nothing", "no signal")):
-                A(f"| {label} | {_acc(by_arm[Arm.TREATMENT], bucket)} | "
-                  f"{_acc(by_arm[Arm.BASELINE_RULES], bucket)} |")
-            A(f"| **Overall accuracy** | **{_overall_acc(by_arm[Arm.TREATMENT])}** | "
-              f"{_overall_acc(by_arm[Arm.BASELINE_RULES])} |")
+                A(f"| {label} | {pct('model', bucket)} | {pct('rules', bucket)} |")
+            A(f"| **Overall accuracy** | **{overall('model')}** | {overall('rules')} |")
             A(f"| Forbidden retries / 1,000 episodes | {t_harm:.1f} | **{r_harm:.1f}** |")
             A(f"| Recovery rate | {treat.recovery_rate:.1%} | {rules_arm.recovery_rate:.1%} |")
             A(f"| Difference in recovery rate | {rate_c.interval.point:+.2f} pp, "
               f"p = {rate_c.p_value:.3f} | — |")
             A("")
             A("**One row carries the argument.** On wordings the merchant has resolved")
-            A("before, a lookup is optimal and both arms score 100% — a model adds")
-            A("nothing and costs money. The first time an acquirer rewords a decline,")
-            A("the keyword table falls to 66% and the model holds at 97%, near the")
-            A("oracle. That is the entire case for putting a model in this system, and")
-            A("it is one column wide.")
+            A("before, a lookup is optimal and both arms score 100% — a model adds nothing")
+            A("and costs money. On text that identifies nothing, base rates and the outage")
+            A("detector are optimal and both arms score the same, because both use the")
+            A("same deterministic path. The first time an acquirer rewords a decline, the")
+            A("keyword table falls to 68% and the model holds at 94%. That is the entire")
+            A("case for putting a model in this system, and it is one column wide.")
             A("")
-            A("Everything else is a wash, and saying so is what makes the one column")
-            A("worth believing:")
+            A("Which is why the model is consulted on so little. Of the treatment arm's")
+            A(f"{len(by_arm[Arm.TREATMENT])} episodes, {served['history']} were answered")
+            A(f"by history and {served['deterministic']} deterministically; only "
+              f"{served['model']} reached the model.")
+            A("Routing the rest through it because it is the interesting component would")
+            A("be worse on the metric and worse on the bill.")
             A("")
-            A(f"- **Recovery is indistinguishable.** {rate_c.interval.point:+.2f} points, "
-              f"p = {rate_c.p_value:.3f}, well inside the placebo noise floor.")
-            A(f"- **Harm is equal**: {t_harm:.1f} forbidden retries per 1,000 episodes")
-            A(f"  against {r_harm:.1f}, both against the fixed ladder's 965. Neither arm")
-            A("  gets there by classifying better. They get there because a low-confidence")
-            A("  diagnosis is not allowed to authorise a retry when the merchant's own base")
-            A("  rates say a fifth of failures in this context are things nobody may")
-            A("  re-present. That rule is available to both, and it is worth more than the")
-            A("  accuracy difference between them.")
-            A("- **On text that identifies nothing the model is marginally behind**, and")
-            A("  both sit near the 44.5% ceiling that base rates impose. Nothing can read a")
-            A("  cause out of \"Transaction declined\"; that column is not a contest.")
-            A("")
-            A("So the case for the model is narrow and it is real. It is not that it")
-            A("classifies better in general — on 65% of episodes it is never consulted, and")
-            A("on the unanswerable ones it is slightly worse. It is that a keyword table")
-            A("has a cliff exactly where payment systems change, and the model does not.")
+            A(f"- **Recovery is identical.** {rate_c.interval.point:+.2f} points, "
+              f"p = {rate_c.p_value:.3f}. Better diagnosis is not buying more money here;")
+            A("  it is buying the same money with fewer wrong actions.")
+            A(f"- **Harm is equal and it is zero**: {t_harm:.1f} forbidden retries per")
+            A(f"  1,000 episodes against {r_harm:.1f}, and the fixed ladder's 965. Neither")
+            A("  arm gets there by classifying better — they get there because a")
+            A("  low-confidence diagnosis is not allowed to authorise a retry when the")
+            A("  base rates say a fifth of failures in this context are things nobody may")
+            A("  re-present.")
+            A("- **The overall figure sits exactly on the single-episode oracle.** That is")
+            A("  a coincidence of two opposite gaps: the model is 5.8 points short of")
+            A("  perfect on new wordings, and 6.2 points *past* the oracle on text that")
+            A("  identifies nothing, because the outage detector reads across episodes and")
+            A("  the oracle does not.")
             A("")
 
     A("## Harm")

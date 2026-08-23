@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from eval.run_batch import STRATEGIES, _rates, _strata, _values, run_population
+from eval.run_batch import _rates, _strata, _values, build_strategies, run_population
 from eval.stats import compare
 from sim import load_params
 from wapas.clock import IST
@@ -71,7 +71,9 @@ class Outcome:
     beats_control: bool
     vs_naive_pp: float
     loses_to_naive: bool
-    forbidden_ratio: float
+    forbidden_treatment: float
+    """Forbidden retries per 1,000 episodes in the treatment arm."""
+    forbidden_naive: float
     net_after_ext_per_ep: float
 
 
@@ -94,8 +96,12 @@ def _price_book(base: CostBook, knob: str, factor: float) -> CostBook:
 
 def measure(params, policies, costs, *, seed: int, label: str, factor: float) -> Outcome:
     start = _dt.datetime(2026, 6, 1, tzinfo=IST)
+    # The same strategies the report runs, history and outage detector
+    # included, rebuilt per perturbation — a merchant's resolved past comes
+    # from the same world as its present.
+    strategies, _ = build_strategies(use_llm=False, seed=seed, params=params)
     results, allocation = run_population(
-        params, policies, costs, seed=seed, start=start, strategies=STRATEGIES
+        params, policies, costs, seed=seed, start=start, strategies=strategies
     )
     by_arm: dict[Arm, list] = defaultdict(list)
     for r in results:
@@ -122,7 +128,8 @@ def measure(params, policies, costs, *, seed: int, label: str, factor: float) ->
         beats_control=control.significant and control.interval.point > 0,
         vs_naive_pp=naive_rate.interval.point,
         loses_to_naive=naive_rate.significant and naive_rate.interval.point < 0,
-        forbidden_ratio=naive_forbidden / max(1e-9, treat_forbidden),
+        forbidden_treatment=treat_forbidden * 1000,
+        forbidden_naive=naive_forbidden * 1000,
         net_after_ext_per_ep=(
             per_ep(t, "recovered_paise") - per_ep(t, "cost_paise")
             - per_ep(t, "externality_paise")
@@ -179,7 +186,7 @@ def render(args, rows: list[Outcome]) -> str:
     A("**conclusions** move.")
     A("")
     A("| Parameter | x | Incremental / 1,000 ep | Beats control? | vs naive (pp) | "
-      "Loses to naive? | Harm ratio | Net after ext. / ep |")
+      "Loses to naive? | Forbidden retries / 1,000 | Net after ext. / ep |")
     A("|---|---|---|---|---|---|---|---|")
     for row in rows:
         factor = "—" if row.factor == 1.0 else f"{row.factor:.1f}"
@@ -187,7 +194,7 @@ def render(args, rows: list[Outcome]) -> str:
           f"{format_inr(int(row.incremental_per_k), compact=True)} | "
           f"{'yes' if row.beats_control else '**NO**'} | {row.vs_naive_pp:+.1f} | "
           f"{'**yes**' if row.loses_to_naive else 'no'} | "
-          f"{row.forbidden_ratio:.0f}x | "
+          f"{row.forbidden_treatment:.1f} vs {row.forbidden_naive:.0f} | "
           f"{format_inr(int(row.net_after_ext_per_ep))} |")
     A("")
 
@@ -223,13 +230,13 @@ def render(args, rows: list[Outcome]) -> str:
     A("reading is that the rules planner is probably slightly behind the fixed ladder")
     A("on rupees, and this sweep cannot pin down by how much.")
     A("")
-    worst = min(rows, key=lambda r: r.forbidden_ratio)
-    A(f"**The harm gap holds everywhere.** The fixed ladder performs between "
-      f"{worst.forbidden_ratio:.0f}x and "
-      f"{max(r.forbidden_ratio for r in rows):.0f}x as many forbidden retries as the")
-    A("diagnosing arm across every run in this table. That conclusion is not sensitive")
-    A("to the assumptions at all, because it follows from the fixed ladder not looking")
-    A("at the cause rather than from any number in the parameter files.")
+    worst = max(r.forbidden_treatment for r in rows)
+    A(f"**The harm gap holds everywhere.** Across every run in this table the "
+      f"diagnosing arm performs at most {worst:.1f} forbidden retries per 1,000")
+    A(f"episodes, against the fixed ladder's ~{rows[0].forbidden_naive:.0f}. That")
+    A("conclusion is not sensitive to the assumptions at all, because it follows from")
+    A("the fixed ladder not looking at the cause rather than from any number in the")
+    A("parameter files.")
     A("")
     A("## Parameters that do nothing")
     A("")
@@ -257,36 +264,43 @@ def render(args, rows: list[Outcome]) -> str:
             metric = ("net after externalities" if label in PRICE_KNOBS
                       else "incremental recovery")
             A(f"- **{label}** — {metric} unchanged at ±{args.factor:.0%}.")
+            if label == "forbidden-retry penalty":
+                A("  This one is inert for a good reason rather than a bad one: it prices")
+                A("  an event that no longer happens. Both diagnosing arms run zero")
+                A("  forbidden retries, so the penalty per retry multiplies by nothing.")
         A("")
         A("Each knob is judged on the metric it can actually move: a price knob cannot")
         A("change gross recovery by construction, and testing it on gross would report")
         A("every price in the rate card as inert. The first version of this section did")
         A("exactly that.")
         A("")
-        A("`issuer outage frequency` is the interesting one. `sim/signals.py` and the")
-        A("parameter file both argue at length that outages must be modelled as")
-        A("**correlated bursts** rather than independent draws, because i.i.d. downtime")
-        A("would let a fixed retry ladder do nearly as well as a cause-aware one and")
-        A("make timing intelligence look worthless. That argument is correct. It is also,")
-        A("on this evidence, currently doing no work: moving the burst count from 14 to")
-        A("10 or 18 leaves every headline figure identical.")
-        A("")
-        A("The reason is that nothing in the system consumes the correlation. Every")
-        A("episode is diagnosed and planned in isolation, so what reaches the response")
-        A("model is only *this* payment's distance from *its* outage ending — a marginal")
-        A("quantity that the burst count does not change. The clustering is real in the")
-        A("data and invisible to the agent.")
-        A("")
-        A("What would make it matter is an agent that reads across episodes: a spike of")
-        A("`issuer_down` failures on one bank is observable, and the right response is to")
-        A("hold every retry against that issuer until it recovers, not to rediscover the")
-        A("outage one episode at a time. That is a real capability and a real product")
-        A("feature, and it is not built. Until it is, the bursty outage model should be")
-        A("described as a property of the simulator rather than as something the results")
-        A("depend on.")
-        A("")
+        if "issuer outage frequency" in inert:
+            A("`issuer outage frequency` is the one to look at. The parameter file argues")
+            A("at length that outages must be modelled as **correlated bursts** rather")
+            A("than i.i.d. draws, because independent downtime would let a fixed ladder do")
+            A("nearly as well as a cause-aware one. The argument is sound and, on this")
+            A("evidence, doing no work: nothing consumes the correlation, because every")
+            A("episode is planned in isolation. The clustering is real in the data and")
+            A("invisible to the agent.")
+            A("")
+
     else:
         A("Every parameter swept moved the headline. Nothing in the model is inert.")
+        A("")
+
+    if "issuer outage frequency" not in inert:
+        A("### The outage parameters are live now")
+        A("")
+        A("`bursts_per_90_days` and `affected_issuer_share` both moved nothing until")
+        A("2026-08-24, and D29 said so: the simulator argued for correlated outages while")
+        A("nothing in the system consumed the correlation. Every episode was planned in")
+        A("isolation, so the clustering was real in the data and invisible to the agent.")
+        A("")
+        A("Both move the results now, because `FleetView` reads across episodes: forty")
+        A("failures on one bank inside an hour is an outage, and that is evidence about a")
+        A("payment which the payment's own error text does not contain. A parameter that")
+        A("does nothing is a claim the code has not implemented, and the only way to find")
+        A("out is to sweep it.")
         A("")
 
     A("## The most contestable parameter")

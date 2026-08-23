@@ -32,6 +32,7 @@ from sim import build_population, load_params
 from wapas.clock import IST
 from wapas.config import settings
 from wapas.diagnose import SYSTEM, DiagnosisCache, DiagnosisResponse, LLMDiagnoser
+from wapas.diagnose.fleet import FleetView
 from wapas.diagnose.history import build_history
 from wapas.llm import OpenAICompatProvider, ask_structured
 from wapas.llm.costs import CostBook
@@ -75,8 +76,12 @@ def main() -> int:
     )
     cache = DiagnosisCache()
     history = build_history(params, seed=HISTORY_SEED, start=_dt.datetime(2026, 6, 1, tzinfo=IST))
+    # The warmer must build exactly the prompts the evaluation will build. It
+    # once omitted the fleet view and reported "0 prompts to fetch" for a cache
+    # that was missing 46 of them.
+    fleet = FleetView.from_episodes(population.episodes)
     probe = LLMDiagnoser(build_provider(cfg), model=cfg.model_reasoning, costs=costs,
-                         history=history)
+                         history=history, fleet=fleet)
     print(f"model: {cfg.model_reasoning}", file=sys.stderr)
 
     pending: dict[str, str] = {}
@@ -87,6 +92,7 @@ def main() -> int:
             error_description=ep.error_description, error_source=ep.error_source,
             error_step=ep.error_step, attempt_no=1,
             is_business=getattr(ep.counterparty, "is_business", False),
+            issuer=getattr(ep, "issuer", ""),
         )
         if history.exact(ep.error_description) is not None:
             continue  # answered from history; the model is never asked

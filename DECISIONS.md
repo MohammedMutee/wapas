@@ -853,3 +853,58 @@ could see was uncertain.
 That is the more durable claim. Accuracy is a property of a model and will
 change with the next one. Refusing to authorise money actions on low-confidence
 diagnoses is a property of the architecture.
+
+---
+
+### D34 · Reading across episodes, and beating a ceiling by changing the question
+**2026-08-24**
+
+Diagnosis from an episode's own text and context tops out at 45.9% on
+uninformative failures. That is not a modelling weakness, it is arithmetic:
+"Transaction declined" is consistent with almost every cause in the taxonomy,
+and no classifier reading that string alone can do better than the base rates.
+
+But the information exists. It is in the *other* episodes. When forty card
+payments on the same bank fail inside an hour, that bank is down, and that is
+evidence about this payment which this payment's error text does not contain.
+
+**The simulator had to be fixed first, and it was already flagged.** D29
+recorded that `bursts_per_90_days` moved nothing, because the code generated
+bursty downtime that no failure could be attributed to a bank —
+`affected_issuer_share` was declared, validated, and never read. Episodes now
+carry an issuer, outages hit a specific set of them, and an `issuer_down`
+failure lands on a bank the outage actually took out.
+
+That change was made through fresh `Rng.child` streams, so it perturbs no
+existing draw: the report before and after adding issuer identity is
+**byte-identical**. Everything measured from here is the detector and nothing
+else.
+
+**`FleetView` is deliberately dull.** A causal index of failures per issuer:
+queried at time *t* it counts nothing after *t*, and it sees only when a
+payment failed and which bank it was on — never a cause, never an outcome.
+Those are the things being predicted.
+
+**Tuned on history, not on the answer.** The first pass picked the window and
+threshold by scoring against the evaluation set, which is how you build a
+detector that works exactly once. Re-tuned on the merchant's resolved past with
+precision constrained to 97% and recall maximised under it, the honest cost was
+six points of recall — 75% became 69% — and the held-out numbers are worth
+quoting: **precision 97.8%, recall 68.6%**. Precision binds because missing an
+outage costs a diagnosis while inventing one sends a retry into a wall.
+
+**Both arms get it.** The keyword classifier consults the fleet wherever the
+text told it nothing, exactly as the agent does.
+
+Result on uninformative text: the keyword baseline goes from 41.2% to **50.7%**
+— through a ceiling that was correctly calculated and is no longer the right
+ceiling. Nothing got cleverer. The information available changed, and the
+report relabels the oracle row to say so: it is a bound on classifiers that
+read one episode at a time.
+
+One finding that inverted the obvious guess, now asserted in a test: **more
+outages produce fewer detections.** The number of outage-caused failures is
+fixed by the cause distribution, so spreading them across more bursts makes
+each one thinner and harder to see. Fewer, larger outages are easier to detect
+than many small ones — which is true in production too, and is the argument for
+alerting on concentration rather than volume.

@@ -84,6 +84,8 @@ class SeededEpisode:
     would_self_recover: bool
     self_recovery_at: _dt.datetime | None
     seed: int
+    issuer: str = ""
+    """Which bank. Observable, and the axis an outage spike shows up on."""
     signal_established: bool = True
     """Whether this wording predates the evaluation window.
 
@@ -101,6 +103,28 @@ class SeededEpisode:
     strategy ever sees it."""
 
 
+ISSUERS: tuple[tuple[str, float], ...] = (
+    ("HDFC", 0.20), ("SBI", 0.18), ("ICICI", 0.15), ("Axis", 0.12),
+    ("Kotak", 0.10), ("PNB", 0.09), ("BoB", 0.08), ("Yes", 0.08),
+)
+"""The banks behind the failures, with rough share weights.
+
+Introduced so that outages have somewhere to happen. Until now the simulator
+generated bursty downtime and nothing could tell which bank was down, which
+made ``bursts_per_90_days`` and ``affected_issuer_share`` inert parameters
+attached to a design the code did not implement (D29). A failure spike is only
+observable if failures carry a bank."""
+
+
+@dataclass(frozen=True, slots=True)
+class Outage:
+    """A window during which specific issuers are unreachable."""
+
+    begin: _dt.datetime
+    end: _dt.datetime
+    issuers: frozenset[str]
+
+
 @dataclass
 class Population:
     """A generated world: counterparties, episodes, and the outage timeline."""
@@ -110,10 +134,13 @@ class Population:
     consumers: list[Consumer] = field(default_factory=list)
     buyers: list[B2BBuyer] = field(default_factory=list)
     episodes: list[SeededEpisode] = field(default_factory=list)
-    outages: list[tuple[_dt.datetime, _dt.datetime]] = field(default_factory=list)
+    outages: list[Outage] = field(default_factory=list)
 
-    def issuer_down_at(self, moment: _dt.datetime) -> bool:
-        return any(start <= moment < end for start, end in self.outages)
+    def issuer_down_at(self, moment: _dt.datetime, issuer: str | None = None) -> bool:
+        return any(
+            o.begin <= moment < o.end and (issuer is None or issuer in o.issuers)
+            for o in self.outages
+        )
 
 
 # Superseded by ``sim.signals``. Kept as the canonical, unambiguous phrasing of
@@ -227,7 +254,7 @@ def _make_buyer(rng: Rng, p: SimParams, ref: str) -> B2BBuyer:
     )
 
 
-def _outages(rng: Rng, p: SimParams, start: _dt.datetime) -> list[tuple[_dt.datetime, _dt.datetime]]:
+def _outages(rng: Rng, p: SimParams, start: _dt.datetime) -> list[Outage]:
     """Bursty issuer downtime.
 
     Modelled as correlated bursts rather than i.i.d. draws. With independent
@@ -236,14 +263,23 @@ def _outages(rng: Rng, p: SimParams, start: _dt.datetime) -> list[tuple[_dt.date
     the simulator, not a finding about the agent.
     """
     o = p.issuer_outages
+    names = [name for name, _ in ISSUERS]
+    affected = max(1, round(len(names) * o.affected_issuer_share))
     out = []
     for i in range(o.bursts_per_90_days):
         r = rng.child("outage", i)
         offset = r.uniform(0, p.horizon_days * 24 * 60)
         dur = r.randint(o.burst_duration_minutes["min"], o.burst_duration_minutes["max"])
         begin = start + _dt.timedelta(minutes=offset)
-        out.append((begin, begin + _dt.timedelta(minutes=dur)))
-    return sorted(out)
+        # A separate child stream, so adding issuer identity does not shift a
+        # single draw anywhere else. The worlds before and after this change
+        # are bit-identical apart from the new field.
+        picker = r.child("issuers")
+        hit = set()
+        while len(hit) < affected:
+            hit.add(picker.choice(names))
+        out.append(Outage(begin, begin + _dt.timedelta(minutes=dur), frozenset(hit)))
+    return sorted(out, key=lambda x: x.begin)
 
 
 def build_population(
@@ -279,12 +315,18 @@ def build_population(
         # Issuer-down failures must actually coincide with an outage, otherwise
         # the diagnosis task is unfairly hard and the timing model unfairly easy.
         down_until = None
+        issuer = r.child("issuer").weighted(dict(ISSUERS))
         if cause is RootCause.ISSUER_DOWN and pop.outages:
-            begin, end = r.child("pick_outage").choice(pop.outages)
+            outage = r.child("pick_outage").choice(pop.outages)
+            begin, end = outage.begin, outage.end
             occurred = begin + _dt.timedelta(
                 minutes=r.child("in_outage").uniform(0, max(1, (end - begin).total_seconds() / 60))
             )
             down_until = end
+            # The failure has to be on a bank the outage actually hit, or a
+            # spike detector would be looking for a pattern the data does not
+            # contain.
+            issuer = r.child("outage_issuer").choice(sorted(outage.issuers))
 
         signal = draw_signal(r.child("signal"), cause,
                              uninformative_share=params.signal_noise.uninformative_share,
@@ -300,7 +342,8 @@ def build_population(
             amount_paise=_amount(r.child("amt"), params), true_cause=cause,
             rail=_rail_for(r.child("rail"), params, cause), occurred_at=occurred,
             error_code=code, error_description=desc, error_source=source, error_step=step,
-            issuer_down_until=down_until, signal_informative=signal.informative,
+            issuer_down_until=down_until, issuer=issuer,
+            signal_informative=signal.informative,
             signal_established=signal.established,
             would_self_recover=self_recovers,
             self_recovery_at=(
@@ -332,6 +375,7 @@ def build_population(
             rail="emandate" if r.child("rail").chance(0.5) else "upi",
             occurred_at=occurred, error_code=code, error_description=desc,
             error_source=source, error_step=step, issuer_down_until=None,
+            issuer=r.child("issuer").weighted(dict(ISSUERS)),
             signal_informative=signal.informative,
             signal_established=signal.established,
             would_self_recover=self_recovers,

@@ -138,8 +138,16 @@ class RulesOnly:
 
     name = "rules_only"
 
-    def __init__(self, history=None) -> None:
+    def __init__(self, history=None, fleet=None) -> None:
         self.history = history
+        self.fleet = fleet
+        """A live view of the merchant's own failure traffic.
+
+        Consulted only where the text has told us nothing. Forty failures on
+        one bank in an hour is evidence about *this* payment that this
+        payment's own error string does not contain, and it is the only thing
+        in the system that can beat the 44.5% ceiling base rates impose on
+        uninformative failures."""
 
     def diagnose(self, ctx: StrategyContext) -> Diagnosis:
         text = f"{ctx.error_description} {ctx.error_code}".lower()
@@ -167,6 +175,14 @@ class RulesOnly:
                     cause, confidence,
                     [f"matched {next(n for n in needles if n in text)!r} in the failure text"],
                     "keyword classifier",
+                )
+
+        if self.fleet is not None and ctx.issuer:
+            signal = self.fleet.signal_at(ctx.issuer, ctx.now)
+            if signal is not None and signal.spiking:
+                return self._diagnosis(
+                    RootCause.ISSUER_DOWN, 0.8, [signal.describe()],
+                    "failure spike on this issuer",
                 )
 
         if self.history is not None:
