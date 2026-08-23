@@ -177,12 +177,13 @@ class RulesOnly:
             if distribution:
                 cause, share = distribution[0]
                 runner_up = distribution[1][0] if len(distribution) > 1 else None
+                risk = self.history.riskiest_alternative(distribution)
                 return self._diagnosis(
                     cause, min(0.6, share),
                     [f"no usable text; most common cause at this {level} is "
                      f"{cause} ({share:.0%} of history)"],
                     f"history prior [{level}]",
-                    alternative=runner_up,
+                    alternative=runner_up, risk=risk,
                 )
 
         cause, confidence, why = _from_context(ctx)
@@ -190,12 +191,13 @@ class RulesOnly:
 
     def _diagnosis(
         self, cause: RootCause, confidence: float, evidence: list[str], notes: str,
-        alternative: RootCause | None = None,
+        alternative: RootCause | None = None, risk: RootCause | None = None,
     ) -> Diagnosis:
         return Diagnosis(
             root_cause=cause,
             confidence=confidence,
             alternative_cause=alternative,
+            risk_hypothesis=risk,
             evidence=evidence,
             recoverable=cause not in _UNRECOVERABLE,
             recommended_horizon_hours=72,

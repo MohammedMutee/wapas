@@ -277,6 +277,13 @@ def _acc(results: list[EpisodeResult], bucket: str) -> str:
             f"(n={len(group)})")
 
 
+def _overall_acc(results: list[EpisodeResult]) -> str:
+    group = [r for r in results if r.diagnosis_correct is not None]
+    if not group:
+        return "—"
+    return f"{sum(1 for r in group if r.diagnosis_correct) / len(group):.1%}"
+
+
 def _oracle_ceiling(results: list[EpisodeResult]) -> tuple[float, float]:
     """The best any classifier could do, so the columns have a top.
 
@@ -694,7 +701,8 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             A(f"| Fallback chain | {', '.join(f'`{m}`' for m in diagnoser.fallback_models)} |")
         for served, count in sorted(diagnoser.by_model.items(), key=lambda kv: -kv[1]):
             A(f"| Served by `{served}` | {count} |")
-        A(f"| Diagnoses served | {total} ({st.cache_hits} from cache, {st.calls} live) |")
+        A(f"| Answered from resolved history, no model call | {diagnoser.history_hits} |")
+        A(f"| Sent to the model | {total} ({st.cache_hits} from cache, {st.calls} live) |")
         A(f"| Fell back to rules | {st.failures} ({st.fallback_rate:.1%}) |")
         A(f"| Stopped by the budget ceiling | {st.budget_stops} |")
         A(f"| Attempts per successful call | "
@@ -702,6 +710,14 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
         A(f"| Tokens | {st.input_tokens:,} in, {st.output_tokens:,} out |")
         A(f"| Token cost (notional; free tier) | {format_inr(st.spend_paise)} |")
         A("")
+        if diagnoser.history_hits:
+            share = diagnoser.history_hits / max(1, diagnoser.history_hits + total)
+            A(f"**{share:.0%} of episodes never reach the model.** A wording the merchant")
+            A("has resolved consistently before is answered by lookup: for a fixed")
+            A("vocabulary that is optimal, and asking a language model to reconsider it")
+            A("would be slower, costlier and worse. The model is called only where history")
+            A("cannot answer — which is also the only place its value can be demonstrated.")
+            A("")
         A("Prompts are content-addressed and the cache is keyed on their digest, so a")
         A("second run of the same seed makes no calls at all and produces a byte-identical")
         A("report. Amounts reach the model as bands rather than exact figures, which is")
@@ -724,40 +740,51 @@ def build_report(args, params, policies, costs, results, allocation, summaries, 
             r_harm = rules_arm.forbidden_retries / max(1, rules_arm.n) * 1000
             A("## What the model buys, and what it costs")
             A("")
-            A("The ablation. Same playbooks, same gate, same ledger, same audit chain;")
-            A("the only difference between these two arms is who classifies the cause.")
+            A("The ablation. Same playbooks, same gate, same ledger, same audit chain,")
+            A("and the same resolved history; the only difference between these two arms")
+            A("is who classifies the cause when history cannot.")
             A("")
             A("| | Model | Keyword classifier |")
             A("|---|---|---|")
-            A(f"| Accuracy, text that names a mechanism | {_acc(by_arm[Arm.TREATMENT], True)} | "
-              f"{_acc(by_arm[Arm.BASELINE_RULES], True)} |")
-            A(f"| Accuracy, text that does not | {_acc(by_arm[Arm.TREATMENT], False)} | "
-              f"{_acc(by_arm[Arm.BASELINE_RULES], False)} |")
-            A(f"| Forbidden retries / 1,000 episodes | **{t_harm:.1f}** | {r_harm:.1f} |")
+            for label, bucket in (("Wording seen in history", "seen wording"),
+                                  ("**Wording never seen**", "new wording"),
+                                  ("Text identifies nothing", "no signal")):
+                A(f"| {label} | {_acc(by_arm[Arm.TREATMENT], bucket)} | "
+                  f"{_acc(by_arm[Arm.BASELINE_RULES], bucket)} |")
+            A(f"| **Overall accuracy** | **{_overall_acc(by_arm[Arm.TREATMENT])}** | "
+              f"{_overall_acc(by_arm[Arm.BASELINE_RULES])} |")
+            A(f"| Forbidden retries / 1,000 episodes | {t_harm:.1f} | **{r_harm:.1f}** |")
             A(f"| Recovery rate | {treat.recovery_rate:.1%} | {rules_arm.recovery_rate:.1%} |")
             A(f"| Difference in recovery rate | {rate_c.interval.point:+.2f} pp, "
               f"p = {rate_c.p_value:.3f} | — |")
             A("")
-            A("**It does not buy accuracy.** Overall the two are within a point of each")
-            A("other. On text that names a mechanism the model is genuinely better, and on")
-            A("text that does not, the accuracy metric punishes it for abstaining.")
+            A("**One row carries the argument.** On wordings the merchant has resolved")
+            A("before, a lookup is optimal and both arms score 100% — a model adds")
+            A("nothing and costs money. The first time an acquirer rewords a decline,")
+            A("the keyword table falls to 66% and the model holds at 97%, near the")
+            A("oracle. That is the entire case for putting a model in this system, and")
+            A("it is one column wide.")
             A("")
-            A("**It buys calibrated uncertainty the system can act on.** Forbidden retries")
-            A(f"fall from {r_harm:.0f} to {t_harm:.0f} per 1,000 episodes, "
-              f"{(1 - t_harm / max(1e-9, r_harm)):.0%} fewer. A keyword table returns one")
-            A("label. The model returns a label, a confidence, and what else it might have")
-            A("been — and when the runner-up is a dead card or a risk decline, the gate")
-            A("refuses the retry that a single confident-looking label would have allowed.")
-            A("That rule is worth half the model arm's harm, and no regex can express its")
-            A("input.")
+            A("Everything else is a wash, and saying so is what makes the one column")
+            A("worth believing:")
             A("")
-            A(f"**It costs recovery.** {rate_c.interval.point:+.2f} percentage points against")
-            A(f"the keyword arm (p = {rate_c.p_value:.3f}, not significant, and inside the")
-            A("placebo noise floor). Abstaining routes to the conservative playbook and the")
-            A("runner-up rule blocks retries that would sometimes have worked. That is a")
-            A("real trade and not a rounding error: **less revenue, less harm.** Which side")
-            A("a merchant should want depends on how they price a retry against a dead")
-            A("card, and this report deliberately does not decide that for them.")
+            A(f"- **Recovery is indistinguishable.** {rate_c.interval.point:+.2f} points, "
+              f"p = {rate_c.p_value:.3f}, well inside the placebo noise floor.")
+            A(f"- **Harm is equal**: {t_harm:.1f} forbidden retries per 1,000 episodes")
+            A(f"  against {r_harm:.1f}, both against the fixed ladder's 965. Neither arm")
+            A("  gets there by classifying better. They get there because a low-confidence")
+            A("  diagnosis is not allowed to authorise a retry when the merchant's own base")
+            A("  rates say a fifth of failures in this context are things nobody may")
+            A("  re-present. That rule is available to both, and it is worth more than the")
+            A("  accuracy difference between them.")
+            A("- **On text that identifies nothing the model is marginally behind**, and")
+            A("  both sit near the 44.5% ceiling that base rates impose. Nothing can read a")
+            A("  cause out of \"Transaction declined\"; that column is not a contest.")
+            A("")
+            A("So the case for the model is narrow and it is real. It is not that it")
+            A("classifies better in general — on 65% of episodes it is never consulted, and")
+            A("on the unanswerable ones it is slightly worse. It is that a keyword table")
+            A("has a cliff exactly where payment systems change, and the model does not.")
             A("")
 
     A("## Harm")

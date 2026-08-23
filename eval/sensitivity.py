@@ -54,6 +54,7 @@ WORLD_KNOBS: dict[str, tuple[str, ...]] = {
     "contact fatigue": ("fatigue_lambda",),
     "amount spread": ("sigma",),
     "issuer outage frequency": ("bursts_per_90_days",),
+    "share of issuers an outage hits": ("affected_issuer_share",),
     "share of failures with no signal": ("uninformative_share",),
     "timing effects": ("liquidity_bonus", "issuer_recovered_bonus"),
 }

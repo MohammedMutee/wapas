@@ -183,6 +183,48 @@ class ResolvedHistory:
                 seen[ex.description] = (ex, score)
         return sorted(seen.values(), key=lambda pair: -pair[1])[:k]
 
+    def known_ambiguous(self, description: str) -> bool:
+        """True when history has seen this wording and found it meaningless.
+
+        A deterministic ceiling on confidence that does not depend on the
+        classifier grading its own evidence honestly. "Transaction declined"
+        has appeared hundreds of times under six different causes; nobody is
+        85% sure what it means, however sure they sound.
+        """
+        key = description.lower().strip()
+        return key in self._by_text and self.exact(description) is None
+
+    def riskiest_alternative(
+        self, distribution: list[tuple[RootCause, float]], *, min_mass: float = 0.15
+    ) -> RootCause | None:
+        """The most likely never-retryable cause, when they are collectively likely.
+
+        The test is on **combined** mass, not on any single cause. On a murky
+        card payment the base rates put roughly 8% on a dead card, 6% on a risk
+        decline and 5% on a cancellation: no one of them looks alarming and
+        together they are a one-in-five chance that re-presenting this payment
+        is something we would refuse to do if we knew. Testing each in
+        isolation missed all three, which is how 25 forbidden retries survived
+        two attempts to stop them.
+
+        Used to fill ``alternative_cause`` when a classifier is unsure and has
+        not named a runner-up itself. An honest abstention says "I do not
+        know"; the base rates can still say "and on this context it could
+        easily be a dead card", and the gate can act on that.
+
+        Without it, abstaining was *less safe* than guessing: `unknown` is a
+        retryable cause, so an honest answer routed to a playbook that retries,
+        and the model arm ran more forbidden retries than the keyword arm it
+        beat on accuracy. Being right about your own uncertainty should not
+        cost someone a re-presentment against a cancelled card.
+        """
+        from ..domain import NEVER_RETRY
+
+        risky = [(c, m) for c, m in distribution if c in NEVER_RETRY]
+        if not risky or sum(m for _, m in risky) < min_mass:
+            return None
+        return max(risky, key=lambda pair: pair[1])[0]
+
     def __len__(self) -> int:
         return len(self.exemplars)
 

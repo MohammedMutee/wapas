@@ -74,6 +74,8 @@ class GateContext:
     alternative_cause: RootCause | None = None
     """The runner-up cause, when the classifier expressed one. A keyword table
     cannot produce this; a calibrated model can, and the gate uses it."""
+    risk_hypothesis: RootCause | None = None
+    """A never-retryable cause the base rates say is plausible here."""
     diagnosis_confidence: float = 1.0
 
     # consumption
@@ -218,16 +220,15 @@ class PolicyGate:
             # keyword classifier cannot express. A regex returns one label; a
             # calibrated model returns a label, a confidence and what else it
             # might have been.
-            if (
-                ctx.alternative_cause is not None
-                and ctx.alternative_cause in m.never_retry_causes
-                and ctx.diagnosis_confidence < 0.75
-            ):
-                return self._deny((
-                    "alternative_cause_never_retryable",
-                    f"alt:{ctx.alternative_cause}",
-                    f"confidence:{ctx.diagnosis_confidence:.2f}",
-                ))
+            if ctx.diagnosis_confidence < 0.75:
+                for label, candidate in (("alt", ctx.alternative_cause),
+                                         ("risk", ctx.risk_hypothesis)):
+                    if candidate is not None and candidate in m.never_retry_causes:
+                        return self._deny((
+                            "alternative_cause_never_retryable",
+                            f"{label}:{candidate}",
+                            f"confidence:{ctx.diagnosis_confidence:.2f}",
+                        ))
 
             checked.append("verify_before_retry")
             if ctx.root_cause in m.verify_before_retry_causes and not ctx.capture_verified:

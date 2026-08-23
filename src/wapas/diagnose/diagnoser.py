@@ -180,7 +180,7 @@ class LLMDiagnoser:
         if cached is not None:
             self.stats.cache_hits += 1
             return self._to_domain(DiagnosisResponse.model_validate(cached), digest,
-                                   cached=True, served_by=self.model)
+                                   cached=True, served_by=self.model, ctx=ctx)
 
         if self.stats.spend_usd >= self.budget_usd:
             self.stats.budget_stops += 1
@@ -223,7 +223,7 @@ class LLMDiagnoser:
 
         if self.cache is not None:
             self.cache.put(digest, parsed.model_dump(mode="json"))
-        return self._to_domain(parsed, digest, cached=False, served_by=served_by)
+        return self._to_domain(parsed, digest, cached=False, served_by=served_by, ctx=ctx)
 
     def drain_cost(self) -> Paise:
         """Token cost of the most recent call, for the episode ledger.
@@ -237,20 +237,47 @@ class LLMDiagnoser:
 
     def _to_domain(
         self, parsed: DiagnosisResponse, digest: str, *, cached: bool,
-        served_by: str = "",
+        served_by: str = "", ctx: StrategyContext | None = None,
     ) -> Diagnosis:
         # ``Diagnosis.evidence`` caps at five. The prompt digest is the replay
         # key and must always survive, and the runner-up is the model's own
         # statement of ambiguity, so the model's quotes are what gets trimmed.
+        alternative = parsed.alternative_cause
+        confidence = parsed.confidence
+
+        # A wording history has seen many times under many causes cannot support
+        # a confident answer, whatever the model says about it. The
+        # signal_quality validator (D24) assumes the model grades the text
+        # honestly, and mostly it does; when it does not — "Transaction
+        # declined" graded `specific` and answered at 0.85 — there is a
+        # deterministic check available that does not rely on self-report.
+        if (self.history is not None and ctx is not None
+                and self.history.known_ambiguous(ctx.error_description)):
+            confidence = min(confidence, 0.5)
+
+        risk = None
+        if confidence < 0.75 and self.history is not None and ctx is not None:
+            distribution, _ = self.history.prior(
+                surface=ctx.surface, rail=ctx.rail, step=ctx.error_step,
+                source=ctx.error_source, code=ctx.error_code,
+            )
+            # Computed whether or not the model named a runner-up of its own.
+            # These answer different questions and only one of them decides
+            # whether a retry is safe.
+            risk = self.history.riskiest_alternative(distribution)
+
         quotes = list(parsed.evidence)
         tail = [f"prompt {digest[:12]}"]
-        if parsed.alternative_cause is not None:
-            tail.insert(0, f"runner-up considered: {parsed.alternative_cause}")
+        if alternative is not None:
+            tail.insert(0, f"runner-up considered: {alternative}")
+        if risk is not None and risk != alternative:
+            tail.insert(0, f"not ruled out, and never retryable: {risk}")
         evidence = quotes[: max(0, 5 - len(tail))] + tail
         return Diagnosis(
             root_cause=parsed.root_cause,
-            confidence=parsed.confidence,
-            alternative_cause=parsed.alternative_cause,
+            confidence=confidence,
+            alternative_cause=alternative,
+            risk_hypothesis=risk,
             evidence=evidence,
             recoverable=parsed.recoverable,
             recommended_horizon_hours=parsed.recommended_horizon_hours,

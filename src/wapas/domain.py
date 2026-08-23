@@ -425,6 +425,22 @@ class Diagnosis(BaseModel):
     it. That is the gate's ``alternative_cause_never_retryable`` rule, and it is
     the clearest thing structured model output buys that a classifier cannot.
     """
+    risk_hypothesis: RootCause | None = None
+    """A cause that must never be retried and that the evidence does not rule out.
+
+    Distinct from ``alternative_cause``, which is the classifier's own
+    second choice. This is the *safety* channel: it comes from the merchant's
+    base rates for this context, and it answers a different question — not
+    "what else might this be?" but "is there something here we would refuse to
+    retry if we knew?".
+
+    Keeping them separate was not the first design. Overloading
+    ``alternative_cause`` for both meant that whenever the classifier named any
+    runner-up of its own, the safety candidate was silently dropped — which is
+    exactly the case where it mattered, and it left 25 forbidden retries
+    standing on episodes diagnosed as `insufficient_funds` whose true cause was
+    a dead card or a risk decline.
+    """
     evidence: list[str] = Field(default_factory=list, max_length=5)
     recoverable: bool
     recommended_horizon_hours: int = Field(ge=0, le=2160)

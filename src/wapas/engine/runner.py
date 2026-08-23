@@ -581,6 +581,7 @@ class EpisodeRunner:
         return GateContext(
             now=when, surface=ep.surface, root_cause=cause, amount_paise=ep.amount_paise,
             alternative_cause=diagnosis.alternative_cause if diagnosis else None,
+            risk_hypothesis=diagnosis.risk_hypothesis if diagnosis else None,
             diagnosis_confidence=diagnosis.confidence if diagnosis else 1.0,
             actions_used=result.actions_taken, contacts_used=result.contacts_made,
             spend_paise=result.cost_paise, retries_used=result.retries,

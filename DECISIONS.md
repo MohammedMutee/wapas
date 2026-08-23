@@ -794,3 +794,62 @@ The general point is worth keeping: **the fashionable component is not the
 default answer.** RAG is the reflex here and the measurement said the reflex
 was wrong. What generalises to an unseen wording is the model's semantic
 understanding, not a nearest-neighbour lookup over strings it has never seen.
+
+---
+
+### D33 · Uncertainty must reach the gate, not just the report
+**2026-08-23**
+
+With history in place the model reached 88.6% against the keyword baseline's
+83.2% — and ran **more** forbidden retries than it: 21.0 per 1,000 episodes
+against 13.3. Being better at diagnosis had made the system less safe.
+
+The mechanism: on text that identifies nothing the model is appropriately
+unsure, `unknown` and other low-confidence answers route to a playbook that
+retries (D28), and a fraction of those episodes turn out to be dead cards. The
+honest answer was producing the unsafe action. Abstention was the right
+*answer* and the wrong *behaviour*.
+
+Three attempts, and the first two failed for instructive reasons.
+
+**Attempt 1 — fill `alternative_cause` from the base rates when the model
+leaves it empty.** No effect. The model usually names a runner-up of its own,
+so the safety candidate was skipped in exactly the cases it was written for.
+One field cannot carry two meanings: "what else might this be?" and "is there
+something here we must not retry?" are different questions with different
+answers.
+
+`Diagnosis.risk_hypothesis` is now separate from `alternative_cause`, and the
+gate checks both.
+
+**Attempt 2 — flag the largest never-retryable cause above 15%.** Still no
+effect on the payment surface. The base rates there put 8% on a dead card, 6%
+on a risk decline and 5% on a cancellation: no single one looks alarming, and
+together they are a **one-in-five chance** that re-presenting this payment is
+something we would refuse to do if we knew. Testing them in isolation missed
+all three. The test is now on combined mass.
+
+**Attempt 3 — stop trusting the model's self-assessment where a deterministic
+check exists.** D24 caps confidence by the model's own grading of the signal,
+which works while the model grades honestly. It does not always: "Transaction
+declined" came back graded `specific` at 0.85. But history has seen that
+wording hundreds of times under six causes, so `known_ambiguous` caps the
+confidence without asking anyone's opinion.
+
+Result, and it applies to **both** arms because both have history:
+
+| | before | after |
+|---|---|---|
+| forbidden retries / 1,000, model | 21.0 | **0.0** |
+| forbidden retries / 1,000, keywords | 13.3 | **0.0** |
+| recovery rate, model | 59.9% | 58.5% |
+
+It costs about a point of recovery, and the report says so. What it buys is
+that no arm with access to the merchant's own base rates re-presents a payment
+against a card the issuer has already declared dead — not because the
+classifier got it right, but because the system declined to act on an answer it
+could see was uncertain.
+
+That is the more durable claim. Accuracy is a property of a model and will
+change with the next one. Refusing to authorise money actions on low-confidence
+diagnoses is a property of the architecture.
