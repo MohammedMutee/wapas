@@ -1,0 +1,64 @@
+# CI regenerates the headline number rather than trusting it.
+#
+# The README quotes a rupee figure. If that figure can drift from what the code
+# actually produces, it is decoration. So every push re-runs the seeded
+# evaluation and fails if the committed report differs by a single byte.
+#
+# Nothing here touches the network. The evaluation runs the rules-only planner;
+# the LLM arm needs a warmed cache and a provider key, so it runs locally and
+# its results are committed with the run that produced them. A CI job that
+# silently fell back to keywords would publish a report labelled as an LLM
+# result that is not one.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests eval sim scripts
+
+      - name: Types
+        run: mypy
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Secrets
+        # A public repository that once held a key in its history is a public
+        # repository with a leaked key. Checked on every push, not at release.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The report must reproduce
+        run: |
+          python -m eval.run_batch --seed 20260901 --quiet
+          if ! git diff --quiet -- results/report.md; then
+            echo "::error::results/report.md is not what this code produces."
+            echo "The committed report and the regenerated one differ:"
+            git --no-pager diff -- results/report.md | head -80
+            exit 1
+          fi
+          echo "report reproduces byte-for-byte"
+
+      - name: The README must not quote a number the report does not contain
+        run: python scripts/check_readme_numbers.py
