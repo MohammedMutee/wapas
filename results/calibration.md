@@ -13,13 +13,13 @@ that it is high.
 | Design | Test | Rejections | Rate | |
 |---|---|---|---|---|
 | `stratified` | permutation, rupees | 21/300 | 7.0% | consistent with 5% (p = 0.078) |
-| `stratified` | permutation, recovery rate | 16/300 | 5.3% | consistent with 5% (p = 0.432) |
-| `stratified` | bootstrap CI excludes 0, rupees | 12/300 | 4.0% | consistent with 5% (p = 0.822) |
-| `stratified` | bootstrap CI excludes 0, rate | 16/300 | 5.3% | consistent with 5% (p = 0.432) |
+| `stratified` | permutation, recovery rate | 18/300 | 6.0% | consistent with 5% (p = 0.247) |
+| `stratified` | bootstrap CI excludes 0, rupees | 13/300 | 4.3% | consistent with 5% (p = 0.739) |
+| `stratified` | bootstrap CI excludes 0, rate | 21/300 | 7.0% | consistent with 5% (p = 0.078) |
 | `simple` | permutation, rupees | 15/300 | 5.0% | consistent with 5% (p = 0.537) |
-| `simple` | permutation, recovery rate | 15/300 | 5.0% | consistent with 5% (p = 0.537) |
-| `simple` | bootstrap CI excludes 0, rupees | 20/300 | 6.7% | consistent with 5% (p = 0.119) |
-| `simple` | bootstrap CI excludes 0, rate | 17/300 | 5.7% | consistent with 5% (p = 0.333) |
+| `simple` | permutation, recovery rate | 11/300 | 3.7% | consistent with 5% (p = 0.888) |
+| `simple` | bootstrap CI excludes 0, rupees | 19/300 | 6.3% | consistent with 5% (p = 0.175) |
+| `simple` | bootstrap CI excludes 0, rate | 11/300 | 3.7% | consistent with 5% (p = 0.888) |
 
 ## 2. Is the test itself exact? One world, many splits
 
@@ -30,8 +30,8 @@ seed-to-seed luck.
 
 | Test | Rejections | Rate | |
 |---|---|---|---|
-| permutation, rupees | 19/400 | 4.8% | consistent with 5% (p = 0.623) |
-| permutation, recovery rate | 17/400 | 4.2% | consistent with 5% (p = 0.786) |
+| permutation, rupees | 17/400 | 4.2% | consistent with 5% (p = 0.786) |
+| permutation, recovery rate | 19/400 | 4.8% | consistent with 5% (p = 0.623) |
 
 ## 3. What stratification actually buys
 
@@ -45,10 +45,10 @@ see past. The **bootstrap CI** is the descriptive interval.
 
 | Design | Null band, rupees / ep | Null band, recovery pp | CI width, rupees / ep | CI width, pp |
 |---|---|---|---|---|
-| `stratified` | 50,528 | 8.61 | 58,449 | 8.63 |
-| `simple` | 57,557 | 8.64 | 58,450 | 8.63 |
+| `stratified` | 50,519 | 8.56 | 58,634 | 8.57 |
+| `simple` | 57,730 | 8.59 | 58,635 | 8.59 |
 
-Stratifying narrows the null band by **12.2%** on rupees.
+Stratifying narrows the null band by **12.5%** on rupees.
 
 ## Reading this
 
