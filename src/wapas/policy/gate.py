@@ -195,6 +195,21 @@ class PolicyGate:
         b = self.p.money.budgets
         disposition = DISPOSITIONS[ctx.root_cause]
 
+        # Offering an alternative payment path is routing around the decline.
+        # A risk decline is the issuer's decision, and giving the same customer
+        # a different way to make the same payment is that act with an extra
+        # step. Found when the live service refused to retry a fraud decline
+        # and then created a payment link for it — the red-team suite had
+        # missed it because it only ever asked about retries.
+        #
+        # Deliberately scoped to the tools that offer another path. A retry is
+        # already covered by never_retry_causes and reports that as its reason,
+        # which is the more precise description of what was refused.
+        if action.tool is not Tool.RETRY_PAYMENT:
+            checked.append("never_route_around")
+            if ctx.root_cause in m.never_route_around_causes:
+                return self._deny(("never_route_around_cause", f"cause:{ctx.root_cause}"))
+
         if action.tool is Tool.RETRY_PAYMENT:
             # Invariant: never present a debit without a live mandate.
             checked.append("mandate_required")

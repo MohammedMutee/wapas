@@ -1,5 +1,5 @@
 # Money policy. Governs anything that moves, promises, or gives up money.
-version: "money/4"
+version: "money/5"
 
 money_actions:
   # Invariant. No configuration value may disable this; the gate hard-codes it
@@ -25,6 +25,22 @@ money_actions:
     # concessions and escalation instead. See DECISIONS.md D16.
   verify_before_retry_causes:
     - technical_timeout
+
+  # Causes where NO alternative payment path may be offered, not merely no
+  # retry. The distinction matters and was missed until the live service was
+  # built: the gate refused to re-present a risk-declined card and then happily
+  # created a payment link for the same episode, which is the same act with an
+  # extra step. `money.yaml` already called that out in prose — "rail-shopping
+  # around it is abuse" — and the code only implemented half of it.
+  #
+  # Not every unrecoverable cause belongs here. A dead card SHOULD get a
+  # payment link: the instrument failed, so offer another one. That is service,
+  # not evasion. These two are different — a fraud decline is the issuer's
+  # decision and a disputed invoice belongs with a human, and routing around
+  # either is the thing a collections system must not do.
+  never_route_around_causes:
+    - risk_declined
+    - invoice_disputed
 
 budgets:
   max_actions_per_episode: 8

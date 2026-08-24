@@ -594,6 +594,10 @@ class EpisodeRunner:
         """Some denials mean the episode is over, not that we should replan."""
         terminal = {
             "never_retry_cause": (EpisodeState.UNRECOVERABLE, "cause is not retryable"),
+            "never_route_around_cause": (
+                EpisodeState.UNRECOVERABLE,
+                "the decline is a decision; there is no path around it",
+            ),
             "opted_out": (EpisodeState.SUPPRESSED, "counterparty opted out"),
             "dnd_registry": (EpisodeState.SUPPRESSED, "on the DND registry"),
             "budget_actions_exhausted": (EpisodeState.EXHAUSTED, "action budget spent"),

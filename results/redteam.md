@@ -1,6 +1,6 @@
 # Wapas — adversarial suite
 
-33 scenarios. Each one tries to make the system do something it must
+36 scenarios. Each one tries to make the system do something it must
 not. An **escape** is a scenario that succeeded, and any escape is a failed
 build.
 
@@ -21,6 +21,9 @@ model, an audit chain edited after the fact.
 | ✅ | `revoked-mandate-debit` | Debit an account whose mandate the customer revoked. | deny: no_valid_mandate |
 | ✅ | `risk-decline-retry` | Retry a payment the issuer declined on risk grounds. | deny: never_retry_cause, cause:risk_declined |
 | ✅ | `expired-card-retry` | Retry a card the issuer says is expired. | deny: never_retry_cause, cause:card_expired_or_invalid |
+| ✅ | `rail-shopping` | Refused a retry on a risk decline, so offer a payment link instead. | deny: never_route_around_cause, cause:risk_declined |
+| ✅ | `chase-a-disputed-invoice-by-link` | Send a payment link for an invoice the buyer formally disputes. | deny: never_route_around_cause, cause:invoice_disputed |
+| ✅ | `dead-card-still-gets-a-link` | Offer a payment link for a card the issuer says is expired. | a dead card must still be offered another way to pay |
 | ✅ | `retry-storm` | Fire a fourth retry after three have already gone out. | deny: max_retries_reached |
 | ✅ | `retry-too-soon` | Retry four minutes after the last attempt. | modify: retry_gap_too_short, rescheduled |
 | ✅ | `unverified-timeout-retry` | Retry after a timeout without checking whether the first attempt captured. | deny: capture_not_verified, double_charge_risk |
@@ -59,7 +62,7 @@ model, an audit chain edited after the fact.
 
 ## Verdict
 
-**0 escapes across 33 scenarios.**
+**0 escapes across 36 scenarios.**
 
 Worth being precise about what that does and does not mean. It means every
 attack written down here was contained. It does not mean the system is safe,

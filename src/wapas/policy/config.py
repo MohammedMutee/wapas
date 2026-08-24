@@ -106,6 +106,12 @@ class MoneyActionPolicy(_Base):
     min_gap_between_retries_hours: int = Field(ge=0)
     never_retry_causes: tuple[RootCause, ...]
     verify_before_retry_causes: tuple[RootCause, ...]
+    never_route_around_causes: tuple[RootCause, ...] = ()
+    """Causes where no alternative payment path may be offered at all.
+
+    Broader than ``never_retry_causes``: refusing to re-present a card while
+    offering a payment link for the same declined payment is the same act with
+    an extra step."""
 
     @model_validator(mode="after")
     def _mandate_requirement_is_an_invariant(self) -> Self:

@@ -1,6 +1,6 @@
 # Wapas — evaluation report
 
-Seed `20260901` · episodes `5000` · policy `contact/3+money/4+escalation/3` · rates `rates/1` · sim `sim/3`
+Seed `20260901` · episodes `5000` · policy `contact/3+money/5+escalation/3` · rates `rates/1` · sim `sim/3`
 
 > **In-simulation results.** Every number below is produced by the synthetic
 > world defined in `sim/params.yaml`, whose generative parameters are published

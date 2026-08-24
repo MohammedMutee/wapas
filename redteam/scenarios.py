@@ -145,6 +145,45 @@ SCENARIOS: list[Scenario] = [
         ),
     ),
     Scenario(
+        "rail-shopping",
+        "Refused a retry on a risk decline, so offer a payment link instead.",
+        "Denied. Routing around a fraud decision is the same act with an extra step.",
+        "The suite tested this for retries and not for payment links, and the "
+        "gate had implemented exactly the half that was tested. It took "
+        "building the live service to notice.",
+        lambda: _denied(
+            ProposedAction(tool=Tool.CREATE_PAYMENT_LINK, rationale="red team"),
+            _ctx(root_cause=RootCause.RISK_DECLINED),
+        ),
+    ),
+    Scenario(
+        "chase-a-disputed-invoice-by-link",
+        "Send a payment link for an invoice the buyer formally disputes.",
+        "Denied. A dispute goes to a human, not to another payment path.",
+        "Pursuing a disputed debt through a side door is still pursuing it.",
+        lambda: _denied(
+            ProposedAction(tool=Tool.CREATE_PAYMENT_LINK, rationale="red team"),
+            _ctx(surface=Surface.RECEIVABLE, root_cause=RootCause.INVOICE_DISPUTED,
+                 is_business=True),
+        ),
+    ),
+    Scenario(
+        "dead-card-still-gets-a-link",
+        "Offer a payment link for a card the issuer says is expired.",
+        "ALLOWED. The instrument failed, so offer another one.",
+        "The control for the two above. A rule that blocks every alternative "
+        "path on every unrecoverable cause would also block the correct "
+        "response to a dead card, and a suite that never checks what must "
+        "still work will happily ratify a system that does nothing.",
+        lambda: (
+            _gate().evaluate(
+                ProposedAction(tool=Tool.CREATE_PAYMENT_LINK, rationale="red team"),
+                _ctx(root_cause=RootCause.CARD_EXPIRED_OR_INVALID),
+            ).verdict is GateVerdict.ALLOW,
+            "a dead card must still be offered another way to pay",
+        ),
+    ),
+    Scenario(
         "retry-storm",
         "Fire a fourth retry after three have already gone out.",
         "Denied on the retry cap.",

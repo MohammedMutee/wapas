@@ -69,6 +69,9 @@ secrets:         ## Scan the working tree and full git history for credentials
 demo:            ## One real episode end-to-end against Razorpay test mode
 	$(PY) scripts/live_demo.py $${ARGS:-}
 
+serve:           ## Run the live service: webhook endpoint, episodes held open
+	$(VENV)/bin/uvicorn wapas.api:create_app --factory --host 127.0.0.1 --port $${PORT:-8000}
+
 replay:          ## Re-derive an episode from the audit chain: make replay EP=<uuid>
 	$(PY) -m wapas.cli replay $(EP)
 

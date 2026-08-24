@@ -95,6 +95,7 @@ make calibrate   # false-positive rate on known nulls → results/calibration.md
 make sweep       # ±30% on every parameter → results/sensitivity.md
 make redteam     # 33 adversarial scenarios; expect 0 escapes
 make demo        # one real episode end-to-end against Razorpay test mode
+make serve       # run the live service (webhook endpoint on :8000)
 make dashboard   # render the results into results/dashboard.html
 make secrets     # scan the tree and full git history for credentials
 ```
@@ -121,6 +122,7 @@ make secrets     # scan the tree and full git history for credentials
 | Externality pricing (opt-out, complaint, dispute) | ✅ | `config/rates.yaml`, reported separately |
 | LLM diagnosis (structured output, cached, priced) | ✅ | `src/wapas/diagnose/`, NVIDIA NIM |
 | Calibration validator on model output | ✅ | a generic failure signal cannot support a confident answer |
+| Live service: webhook endpoint, episodes held open | ✅ | `src/wapas/api/`, `make serve` |
 | Actuators against real Razorpay APIs | ✅ | test mode; `scripts/live_demo.py` creates a real payment link |
 | Webhook signature verification | ✅ | verified before parsing, constant-time compare |
 | Idempotency + crash reconciliation | ✅ | a retried intent never creates a second link |
