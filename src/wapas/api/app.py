@@ -29,6 +29,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text as _sa_text
 
 from ..actuators import RazorpayActuator, WebhookRejected
 from ..actuators import parse as parse_webhook
@@ -128,12 +129,34 @@ def build_service(
     return Service(
         config=cfg,
         policies=load_policies("policies"),
-        store=store or InMemoryEpisodeStore(),
+        store=store if store is not None else _default_store(cfg),
         chain=HashChain(salt=f"live-{cfg.seed}"),
         clock=the_clock,
         actuator=actuator,
         classifier=classifier or RulesOnly(),
     )
+
+
+def _default_store(cfg: Settings) -> EpisodeStore:
+    """Durable if a database is reachable, in-memory if not.
+
+    Falling back rather than refusing to start is deliberate: the demo, the
+    tests and a laptop with no Docker all need to run. What is not acceptable
+    is being quiet about it, so ``/healthz`` reports ``durable`` either way and
+    the startup log says which one happened.
+    """
+    try:
+        from ..db import sessionmaker_for
+        from .pg_store import PostgresEpisodeStore
+
+        sessions = sessionmaker_for(cfg.database_url)
+        with sessions() as probe:
+            probe.execute(_sa_text("select 1"))
+        return PostgresEpisodeStore(sessions=sessions)
+    except Exception as exc:  # any failure to reach the database
+        print(f"[wapas] database unreachable ({type(exc).__name__}); "
+              f"episodes will NOT survive a restart")
+        return InMemoryEpisodeStore()
 
 
 def create_app(service: Service | None = None) -> FastAPI:
@@ -304,8 +327,21 @@ def create_app(service: Service | None = None) -> FastAPI:
             return {"accepted": True, "matched": False, "event": event.event}
 
         identity = f"{event.event}:{event.provider_id}:{int(event.at.timestamp())}"
+        fresh = svc.store.claim_event(
+            episode, identity, event=event.event,
+            amount_paise=event.amount_paise, at=event.at,
+        )
+        if not fresh:
+            svc.chain.append(at=event.at, actor="provider", event_type="outcome",
+                             payload={"ref": episode.ref, "event": event.event,
+                                      "state": str(episode.state), "changed": False,
+                                      "duplicate": True})
+            return {"accepted": True, "matched": True, "ref": episode.ref,
+                    "event": event.event, "state": str(episode.state),
+                    "changed": False, "duplicate": True, "reason": "already applied"}
+
         applied = apply_event(
-            episode, event=event.event, event_identity=identity,
+            episode, event=event.event,
             amount_paise=event.amount_paise, at=event.at,
         )
         svc.store.put(episode)

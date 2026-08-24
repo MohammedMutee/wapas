@@ -11,6 +11,7 @@ the thing measured and the thing running are the same thing.
 """
 
 from .app import OpenEpisode, Service, build_service, create_app
+from .pg_store import PostgresEpisodeStore
 from .store import (
     Applied,
     EpisodeStore,
@@ -25,6 +26,7 @@ __all__ = [
     "InMemoryEpisodeStore",
     "LiveEpisode",
     "OpenEpisode",
+    "PostgresEpisodeStore",
     "Service",
     "apply_event",
     "build_service",

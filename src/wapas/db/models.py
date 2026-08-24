@@ -11,7 +11,17 @@ from __future__ import annotations
 import datetime as _dt
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, enum_str, fk_uuid, jsonb, paise, pk_uuid, ts
@@ -120,10 +130,24 @@ class Episode(Base):
     """Per-episode seed. Arm assignment and simulator draws derive from it, so a
     run is reproducible from the scenario alone."""
 
+    ref: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    """The merchant's own reference for this episode.
+
+    Nullable because simulated episodes are identified by ``id``; unique because
+    a live merchant sending the same reference twice means the same episode, and
+    the database is the only place that can enforce it across processes."""
+
+    provider_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """The payment link this episode is waiting on, e.g. ``plink_...``.
+
+    Indexed because a webhook often carries only this: the provider knows its
+    own identifier, not ours."""
+
     counterparty: Mapped[Counterparty] = relationship(back_populates="episodes")
     decisions: Mapped[list[Decision]] = relationship(
         back_populates="episode", order_by="Decision.step_no"
     )
+    deliveries: Mapped[list[WebhookDelivery]] = relationship(back_populates="episode")
     outcomes: Mapped[list[Outcome]] = relationship(back_populates="episode")
 
     __table_args__ = (
@@ -134,6 +158,42 @@ class Episode(Base):
     @property
     def net_paise(self) -> int:
         return self.recovered_paise - self.cost_paise
+
+
+class WebhookDelivery(Base):
+    """One inbound event, recorded so it can never be applied twice.
+
+    The whole table exists for its unique constraint. Providers retry until they
+    receive a 2xx, so the same "payment received" arrives again whenever a
+    response is slow, a deploy lands mid-request, or a worker is killed — and
+    applying it twice credits money that arrived once.
+
+    An in-process set cannot do this job. It forgets on restart, which is
+    precisely when a provider is redelivering, and it is invisible to a second
+    worker handling the retry concurrently. A unique index is checked by the
+    one component both workers share.
+
+    The claim is therefore an INSERT rather than a SELECT-then-INSERT: asking
+    "have I seen this?" and then recording it leaves a window between the two
+    questions, and that window is where the double credit happens.
+    """
+
+    __tablename__ = "webhook_delivery"
+
+    id: Mapped[uuid.UUID] = pk_uuid()
+    episode_id: Mapped[uuid.UUID] = fk_uuid("episode.id")
+    event_identity: Mapped[str] = mapped_column(String(200))
+    """Provider event, provider object and timestamp, together identifying one
+    delivery of one occurrence."""
+    event: Mapped[str] = mapped_column(String(60))
+    amount_paise: Mapped[int] = paise()
+    received_at: Mapped[_dt.datetime] = ts(index=True)
+
+    episode: Mapped[Episode] = relationship(back_populates="deliveries")
+
+    __table_args__ = (
+        UniqueConstraint("episode_id", "event_identity", name="uq_delivery_identity"),
+    )
 
 
 class Decision(Base):

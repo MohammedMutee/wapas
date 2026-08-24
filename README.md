@@ -123,6 +123,7 @@ make secrets     # scan the tree and full git history for credentials
 | LLM diagnosis (structured output, cached, priced) | ✅ | `src/wapas/diagnose/`, NVIDIA NIM |
 | Calibration validator on model output | ✅ | a generic failure signal cannot support a confident answer |
 | Live service: webhook endpoint, episodes held open | ✅ | `src/wapas/api/`, `make serve` |
+| Durable episodes + cross-process webhook de-duplication | ✅ | survives a restart; a redelivery is credited once |
 | Actuators against real Razorpay APIs | ✅ | test mode; `scripts/live_demo.py` creates a real payment link |
 | Webhook signature verification | ✅ | verified before parsing, constant-time compare |
 | Idempotency + crash reconciliation | ✅ | a retried intent never creates a second link |

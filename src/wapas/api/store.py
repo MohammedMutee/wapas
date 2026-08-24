@@ -65,6 +65,19 @@ class EpisodeStore(Protocol):
 
     def all(self) -> list[LiveEpisode]: ...
 
+    def claim_event(self, episode: LiveEpisode, identity: str, *,
+                    event: str, amount_paise: int, at: _dt.datetime) -> bool:
+        """Record an inbound event, returning False if it was already recorded.
+
+        De-duplication belongs to the store because only the store knows what
+        guarantee it can actually offer. The in-memory implementation has a
+        lock, which protects one process and forgets on restart — precisely
+        when a provider is redelivering. The durable one has a unique
+        constraint, which is checked by the single component every worker
+        shares.
+        """
+        ...
+
 
 @dataclass
 class InMemoryEpisodeStore:
@@ -99,6 +112,14 @@ class InMemoryEpisodeStore:
         with self._lock:
             return sorted(self.episodes.values(), key=lambda e: e.opened_at)
 
+    def claim_event(self, episode: LiveEpisode, identity: str, *,
+                    event: str, amount_paise: int, at: _dt.datetime) -> bool:
+        with self._lock:
+            if identity in episode.seen_events:
+                return False
+            episode.seen_events.add(identity)
+            return True
+
 
 @dataclass(frozen=True, slots=True)
 class Applied:
@@ -114,7 +135,6 @@ def apply_event(
     episode: LiveEpisode,
     *,
     event: str,
-    event_identity: str,
     amount_paise: int,
     at: _dt.datetime,
 ) -> Applied:
@@ -123,9 +143,9 @@ def apply_event(
     Three refusals, in order, and each of them is a way a live system quietly
     counts money it did not receive:
 
-    **A repeated delivery changes nothing.** Providers retry until they get a
-    2xx, so the same event arrives again whenever a response is slow or a
-    deploy lands mid-request. Recovery is counted once.
+    De-duplication happens before this function is reached — the caller claims
+    the delivery through the store, which is the only component that can make
+    the guarantee across processes and restarts.
 
     **A terminal episode does not reopen.** A late ``payment.failed`` for an
     episode already recovered is stale news about an earlier attempt, not a
@@ -135,10 +155,6 @@ def apply_event(
     meaning of an event this code has never seen is how an endpoint develops
     behaviour nobody designed.
     """
-    if event_identity in episode.seen_events:
-        return Applied(False, episode.state, "already applied", duplicate=True)
-    episode.seen_events.add(event_identity)
-
     if episode.is_terminal:
         return Applied(False, episode.state,
                        f"episode already {episode.state}; event ignored")
