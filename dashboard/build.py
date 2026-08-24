@@ -185,8 +185,15 @@ def build(summary: dict, generated: str) -> str:
   .viz-root {{
     background:var(--surface-1); color:var(--text-primary);
     font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    max-width:980px; margin:0 auto; padding:40px 24px 72px;
+    /* A dashboard is scanned, not read top to bottom, so charts and tables get
+       the width and prose does not. Capping the whole page at 980px left a
+       wide monitor mostly empty; letting it run to the window edge would set
+       running text at 200 characters a line. The container is wide, and the
+       few blocks that are actually prose are constrained separately below. */
+    max-width:1440px; margin:0 auto; padding:40px clamp(20px, 4vw, 56px) 72px;
   }}
+  /* Reading measure, applied only to text that is read as sentences. */
+  .sub, .note, .cap, .btitle {{ max-width:74ch; }}
   h1 {{ font-size:27px; margin:0 0 4px; letter-spacing:-.02em; }}
   h2 {{ font-size:17px; margin:44px 0 6px; letter-spacing:-.01em; }}
   .sub {{ color:var(--text-secondary); margin:0 0 8px; }}
@@ -199,11 +206,15 @@ def build(summary: dict, generated: str) -> str:
   .tile .c {{ color:var(--text-secondary); font-size:12.5px; display:block; margin-top:3px; }}
   .ok {{ color:var(--good); }}
   .chart {{ margin-top:10px; overflow-x:auto; }}
+  .tablewrap {{ overflow-x:auto; }}
   .row {{ display:flex; align-items:center; gap:10px; margin:5px 0; }}
   .rlabel {{ width:var(--label-w,150px); flex:none; color:var(--text-secondary);
              font-size:13px; text-align:right; }}
   .rlabel.small {{ width:112px; }}
-  .track {{ flex:none; width:420px; }}
+  /* Fluid. Fixed at 420px the bars ignored every pixel the page gained, which
+     is what made the layout look empty rather than merely narrow. min-width:0
+     lets a flex child actually shrink below its content on small screens. */
+  .track {{ flex:1 1 auto; min-width:0; }}
   .bar {{ display:block; height:15px; border-radius:0 4px 4px 0; }}
   .rvalue {{ width:var(--value-w,108px); flex:none; font-variant-numeric:tabular-nums;
              font-size:13px; color:var(--text-primary); }}
@@ -279,6 +290,7 @@ to an acquirer.</p>
 {bar_chart(net_rows, max_value=max(r[1] for r in net_rows) or 1)}
 
 <h2>Every number above, as a table</h2>
+<div class="tablewrap">
 <table>
   <tr><th>Arm</th><th>n</th><th>Recovery</th><th>Gross / ep</th>
       <th>Net after ext. / ep</th><th>Contacts / ep</th><th>Opt-outs</th>
@@ -293,6 +305,7 @@ to an acquirer.</p>
       f"<td class='num'>{arms[a]['forbidden_retries_per_1000']:.1f}</td></tr>"
       for a in present)}
 </table>
+</div>
 
 <footer>
   In-simulation results from published generative parameters the agent never reads
