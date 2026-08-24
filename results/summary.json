@@ -1,7 +1,7 @@
 {
   "seed": 20260901,
   "episodes": 5000,
-  "llm": true,
+  "llm": false,
   "generated_from": "eval.run_batch",
   "arms": {
     "baseline_naive": {
@@ -16,13 +16,13 @@
     },
     "treatment": {
       "n": 2000,
-      "recovery_rate": 0.599,
-      "gross_per_episode": 118006.9535,
-      "net_after_ext_per_episode": 103769.7775,
-      "contacts_per_episode": 0.8445,
-      "opt_out_rate": 0.0515,
+      "recovery_rate": 0.586,
+      "gross_per_episode": 116985.642,
+      "net_after_ext_per_episode": 101843.181,
+      "contacts_per_episode": 0.8815,
+      "opt_out_rate": 0.0545,
       "forbidden_retries_per_1000": 0.0,
-      "externalities_per_episode": 14214.169
+      "externalities_per_episode": 15118.6705
     },
     "baseline_blast": {
       "n": 750,
@@ -64,8 +64,8 @@
       },
       "new wording": {
         "n": 348,
-        "correct": 333,
-        "accuracy": 0.9568965517241379
+        "correct": 241,
+        "accuracy": 0.6925287356321839
       },
       "no signal": {
         "n": 355,
@@ -96,50 +96,9 @@
     "no_signal": 0.44534883720930235
   },
   "audit": {
-    "entries": 40065,
+    "entries": 40245,
     "intact": true
   },
-  "model": {
-    "name": "nvidia/nemotron-3-super-120b-a12b",
-    "from_history": 1297,
-    "deterministic": 355,
-    "to_model": 348,
-    "fallbacks": 0
-  },
-  "head_to_head": {
-    "model": {
-      "seen wording": {
-        "n": 3225,
-        "correct": 3225,
-        "accuracy": 1.0
-      },
-      "new wording": {
-        "n": 915,
-        "correct": 862,
-        "accuracy": 0.9420765027322404
-      },
-      "no signal": {
-        "n": 860,
-        "correct": 436,
-        "accuracy": 0.5069767441860465
-      }
-    },
-    "rules": {
-      "seen wording": {
-        "n": 3225,
-        "correct": 3225,
-        "accuracy": 1.0
-      },
-      "new wording": {
-        "n": 915,
-        "correct": 620,
-        "accuracy": 0.6775956284153005
-      },
-      "no signal": {
-        "n": 860,
-        "correct": 436,
-        "accuracy": 0.5069767441860465
-      }
-    }
-  }
+  "model": null,
+  "head_to_head": null
 }

@@ -55,7 +55,8 @@ The no-signal row beats its own ceiling because the system stops reading one
 episode at a time: forty failures on one bank inside an hour is an outage, and
 that is evidence this payment's error text does not contain.
 
-Full report: [`results/report.md`](results/report.md) · Statistical calibration:
+Full report: [`results/report.md`](results/report.md) · CI-reproducible rules-only
+run: [`results/report-rules.md`](results/report-rules.md) · Statistical calibration:
 [`results/calibration.md`](results/calibration.md) · Architecture:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) · Decision log: [`DECISIONS.md`](DECISIONS.md)
 

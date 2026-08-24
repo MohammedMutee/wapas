@@ -50,15 +50,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: The report must reproduce
+        # Compares the *rules-only* report, which is the one CI can produce:
+        # the headline results/report.md is the LLM run and needs a provider key
+        # and a warmed cache. Diffing that one here would fail every build for a
+        # reason unrelated to the code, which is how a determinism check gets
+        # switched off and stops catching anything.
         run: |
-          python -m eval.run_batch --seed 20260901 --quiet
-          if ! git diff --quiet -- results/report.md; then
-            echo "::error::results/report.md is not what this code produces."
-            echo "The committed report and the regenerated one differ:"
-            git --no-pager diff -- results/report.md | head -80
+          python -m eval.run_batch --seed 20260901 --quiet --out results/report-rules.md
+          if ! git diff --quiet -- results/report-rules.md; then
+            echo "::error::results/report-rules.md is not what this code produces."
+            git --no-pager diff -- results/report-rules.md | head -80
             exit 1
           fi
-          echo "report reproduces byte-for-byte"
+          echo "rules-only report reproduces byte-for-byte"
 
       - name: Adversarial suite — expect zero escapes
         run: python -m redteam.run --quiet
