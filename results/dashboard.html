@@ -21,6 +21,11 @@
     --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
   }
+  /* Padding insets content instead of adding to width. Without this,
+     `.viz-root` at width:100% with 48px of horizontal padding measured
+     1920 + 48 + 48 = 2016px inside a 1920px window and the page scrolled
+     sideways — the layout was not too narrow, it was too wide. */
+  *, *::before, *::after { box-sizing:border-box; }
   body { margin:0; background:var(--surface-1); }
   .viz-root {
     background:var(--surface-1); color:var(--text-primary);
@@ -30,7 +35,7 @@
        looked at on. The page now fills the window; readability is protected
        where it actually matters — the prose blocks below keep a measure, so
        sentences stay short even though the page does not. */
-    width:100%; max-width:none; margin:0; padding:40px clamp(20px, 3vw, 48px) 72px;
+    max-width:none; margin:0; padding:40px clamp(20px, 3vw, 48px) 72px;
   }
   /* Reading measure, applied only to text that is read as sentences. */
   .sub, .note, .cap, .btitle { max-width:74ch; }
@@ -85,7 +90,7 @@
 <h1>Wapas — revenue that came back</h1>
 <p class="sub">Seed <code>20260901</code> · 5,000 episodes ·
 LLM agent ·
-generated 2026-08-24 19:28 UTC by <code>make dashboard</code></p>
+generated 2026-08-24 19:33 UTC by <code>make dashboard</code></p>
 
 <div class="hero">
   <div class="tile"><span class="n">₹15,39,328.91</span>

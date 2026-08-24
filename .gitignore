@@ -24,3 +24,6 @@ results/*.png
 # results without the calls that produced them is shipping a conclusion,
 # not evidence. "make warm" rebuilds it.
 .cache/
+
+# Local render checks (playwright screenshots, not committed)
+*.png

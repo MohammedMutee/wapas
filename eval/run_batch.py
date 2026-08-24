@@ -530,7 +530,15 @@ def _write_summary_json(args, results, summaries, chain, diagnoser, served, head
             if head else None
         ),
     }
-    out = Path(args.out).with_name("summary.json")
+    # Named after the report it came from, not a fixed "summary.json".
+    #
+    # It was fixed, and the rules-only run CI performs therefore overwrote the
+    # LLM run's summary — silently, because both runs succeed. The dashboard
+    # reads this file, so `make eval-llm && make eval` produced a dashboard
+    # with no agent in it and an empty accuracy comparison, twice, and the
+    # second time it was published before anyone noticed.
+    report = Path(args.out)
+    out = report.with_name("summary.json" if args.llm else "summary-rules.json")
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
