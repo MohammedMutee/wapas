@@ -49,16 +49,21 @@ def bar_chart(
 ) -> str:
     """Horizontal bars. Every bar is directly labelled, so identity and value
     never depend on colour alone — which is also what discharges the contrast
-    warning on the lighter slots."""
-    plot = 420
+    warning on the lighter slots.
+
+    Widths are percentages of the track, not pixels. They were pixels, computed
+    here against an assumed 420px plot, which meant the chart stayed exactly
+    420px wide however much room the page had — making the track fluid in CSS
+    did nothing at all while the bars inside it were literal pixel values.
+    """
     out = [f'<div class="chart" style="--label-w:{label_width}px;--value-w:{value_width}px">']
     for name, value, formatted in rows:
-        width = max(2.0, (value / max_value * plot) if max_value else 2.0)
+        width = max(0.5, (value / max_value * 100) if max_value else 0.5)
         slot = SLOT.get(name, 1)
         out.append(
             f'<div class="row">'
             f'<span class="rlabel">{esc(LABEL.get(name, name))}</span>'
-            f'<span class="track"><span class="bar s{slot}" style="width:{width:.1f}px"></span></span>'
+            f'<span class="track"><span class="bar s{slot}" style="width:{width:.2f}%"></span></span>'
             f'<span class="rvalue">{esc(formatted)}{esc(unit)}</span>'
             f"</div>"
         )
@@ -72,7 +77,6 @@ def grouped_accuracy(head: dict) -> str:
     buckets = [("seen wording", "Wording seen before"),
                ("new wording", "Wording never seen"),
                ("no signal", "Text says nothing")]
-    plot = 380
     out = ['<div class="chart grouped">']
     for key, title in buckets:
         model = head["model"][key]
@@ -86,7 +90,7 @@ def grouped_accuracy(head: dict) -> str:
                 f'<div class="row">'
                 f'<span class="rlabel small">{esc(who)}</span>'
                 f'<span class="track"><span class="bar {cls}" '
-                f'style="width:{max(2.0, pct * plot):.1f}px"></span></span>'
+                f'style="width:{max(0.5, pct * 100):.2f}%"></span></span>'
                 f'<span class="rvalue">{pct:.1%}</span>'
                 f"</div>"
             )
@@ -185,12 +189,12 @@ def build(summary: dict, generated: str) -> str:
   .viz-root {{
     background:var(--surface-1); color:var(--text-primary);
     font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    /* A dashboard is scanned, not read top to bottom, so charts and tables get
-       the width and prose does not. Capping the whole page at 980px left a
-       wide monitor mostly empty; letting it run to the window edge would set
-       running text at 200 characters a line. The container is wide, and the
-       few blocks that are actually prose are constrained separately below. */
-    max-width:1440px; margin:0 auto; padding:40px clamp(20px, 4vw, 56px) 72px;
+    /* Full width. A centred column at 980px, and then at 1440px, still left
+       obvious empty margins on a desktop monitor, which is what this page is
+       looked at on. The page now fills the window; readability is protected
+       where it actually matters — the prose blocks below keep a measure, so
+       sentences stay short even though the page does not. */
+    width:100%; max-width:none; margin:0; padding:40px clamp(20px, 3vw, 48px) 72px;
   }}
   /* Reading measure, applied only to text that is read as sentences. */
   .sub, .note, .cap, .btitle {{ max-width:74ch; }}
