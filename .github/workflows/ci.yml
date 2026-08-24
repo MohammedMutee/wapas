@@ -22,6 +22,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The secrets scan reads the whole history, not a diff.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -45,9 +48,20 @@ jobs:
       - name: Secrets
         # A public repository that once held a key in its history is a public
         # repository with a leaked key. Checked on every push, not at release.
-        uses: gitleaks/gitleaks-action@v2
+        #
+        # gitleaks is run directly rather than through its action, for two
+        # reasons. The action scans only the diff `before^..after`, which misses
+        # anything committed before CI existed — the case that actually matters
+        # — and it breaks outright after a history rewrite, because the "before"
+        # commit no longer exists. That is not hypothetical: it failed exactly
+        # that way on this repository's first two pushes.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --no-banner --exit-code 1
 
       - name: The report must reproduce
         # Compares the *rules-only* report, which is the one CI can produce:
