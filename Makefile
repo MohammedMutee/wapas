@@ -69,6 +69,23 @@ secrets:         ## Scan the working tree and full git history for credentials
 demo:            ## One real episode end-to-end against Razorpay test mode
 	$(PY) scripts/live_demo.py $${ARGS:-}
 
+evidence:        ## Regenerate every file in results/, in dependency order
+	$(PY) -m eval.run_batch --seed $${SEED:-20260901} --llm --quiet
+	$(PY) -m eval.run_batch --seed $${SEED:-20260901} --quiet --out results/report-rules.md
+	$(PY) -m eval.sensitivity
+	$(PY) -m eval.triage_study --seed $${SEED:-20260901}
+	$(PY) -m redteam.run --quiet
+	$(PY) dashboard/build.py
+	@echo "calibration is slow and separate: make calibrate"
+
+fresh:           ## Hint at which evidence files may predate their inputs
+	$(PY) scripts/check_freshness.py
+
+verify-evidence: evidence  ## Regenerate everything and fail if any of it changed
+	@git diff --exit-code --stat results/ \
+	  || { echo "Evidence changed on regeneration — the committed files were stale."; exit 1; }
+	@echo "every regenerated file is byte-identical to the committed one"
+
 serve:           ## Run the live service: webhook endpoint, episodes held open
 	$(VENV)/bin/uvicorn wapas.api:create_app --factory --host 127.0.0.1 --port $${PORT:-8000}
 
